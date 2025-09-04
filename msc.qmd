@@ -1,0 +1,195 @@
+---
+title: "msc"
+date: today
+execute:
+  warning: false
+  message: false
+  cache: false
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Mostrar código"
+    fig-width: 10
+    fig-height: 6
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+```{r}
+#| include: false
+
+# Bibliotecas principais
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readxl)
+library(janitor)
+library(purrr)
+library(forcats)
+library(DT)
+library(knitr)
+library(kableExtra)
+library(readr)
+library(scales)
+```
+
+```{r}
+#| include: false
+#| warning: false
+TG_MSC202507 <- read_delim("TG-MSC202507.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE, 
+    skip = 1)%>% mutate(CONTA = as.character(CONTA)) %>% clean_names()
+```
+
+```{r}
+#| include: false
+#| warning: false
+TG_MSC202507 %>% glimpse()
+
+TG_MSC202507$IC1
+
+```
+
+```{r}
+portaria_PO <- read_excel("portaria.xlsx", sheet = "PO", 
+    skip = 4)%>% clean_names()
+```
+
+```{r}
+portaria_ND <- read_excel("portaria.xlsx", sheet = "ND", 
+    skip = 6)%>% clean_names()
+```
+
+```{r}
+portaria_FR <- read_excel("portaria.xlsx", sheet = "FR", 
+    skip = 12)%>% clean_names()
+```
+
+```{r}
+portaria_CO <- read_excel("portaria.xlsx", sheet = "CO", 
+    skip = 4)%>% clean_names()
+```
+
+```{r}
+portaria_NR <- read_excel("portaria.xlsx", sheet = "NR", 
+    skip = 4)%>% clean_names()
+
+
+```
+
+```{r}
+#| include: false
+#| warning: false
+portaria_LAYOUT <- read_excel("portaria.xlsx", sheet = "Leiaute MSC", 
+    skip = 3) %>% mutate(CONTA = as.character(CONTA))%>% clean_names()
+```
+
+```{r}
+tabelao <- left_join(TG_MSC202507, portaria_LAYOUT, suffix = c(".msc", ".layout"), by = "conta" ) %>% select(-ic5, -ic6, -tipo5, -tipo6)
+```
+
+```{r}
+#| include: false
+#| warning: false
+
+
+codigos_fr <- read_table("~/R/msc/RELFONT.txt", 
+                          skip = 4,
+                          col_names = TRUE) %>%
+     select(1) %>% unique()  # Primeira coluna
+
+
+codigos_nr <- portaria_NR$nr %>% unique()
+
+codigos_nd <- portaria_ND$codigo %>% unique()
+
+tabelao <- tabelao %>% 
+  mutate (posicao_1 = case_when(
+    tipo1.msc == "PO" ~ ifelse(ic1.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
+    tipo1.msc == "FR" ~ ifelse(ic1.msc %in% c(codigos_fr$FR),"ok","verificar" ),
+    tipo1.msc == "ND" ~ ifelse(ic1.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
+    tipo1.msc == "NR" ~ ifelse(ic1.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    TRUE ~ "demais"
+    
+  ),
+  
+  posicao_2 = case_when(
+    tipo2.msc == "PO" ~ ifelse(ic2.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
+    tipo2.msc == "FR" ~ ifelse(ic2.msc %in% c(codigos_fr$FR),"ok","verificar" ),
+    tipo2.msc == "ND" ~ ifelse(ic2.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
+    tipo2.msc == "NR" ~ ifelse(ic2.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    TRUE ~ "demais"
+    
+  ),
+   posicao_3 = case_when(
+    tipo3.msc == "PO" ~ ifelse(ic3.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
+    tipo3.msc == "FR" ~ ifelse(ic3.msc %in% c(codigos_fr$FR),"ok","verificar" ),
+    tipo3.msc == "ND" ~ ifelse(ic3.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
+    tipo3.msc == "NR" ~ ifelse(ic3.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    TRUE ~ "demais"
+    
+  ),
+  posicao_4 = case_when(
+    tipo4.msc == "PO" ~ ifelse(ic4.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
+    tipo4.msc == "FR" ~ ifelse(ic4.msc %in% c(codigos_fr$FR),"ok","verificar" ),
+    tipo4.msc == "ND" ~ ifelse(ic4.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
+    tipo4.msc == "NR" ~ ifelse(ic4.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    TRUE ~ "demais"
+    
+  ))
+```
+
+```{r}
+#| include: false
+#| warning: false
+
+tabelao <- tabelao %>%
+  mutate(
+    saldo = case_when(
+      # Se conta começar com 1, 3, 5, 7 e natureza_valor = 'C', então inverte o sinal
+      substr(conta, 1, 1) %in% c("1", "3", "5", "7") & natureza_valor == "C" ~ -valor,
+      
+      # Se conta começar com 2, 4, 6, 8 e natureza_valor = 'D', então inverte o sinal  
+      substr(conta, 1, 1) %in% c("2", "4", "6", "8") & natureza_valor == "D" ~ -valor,
+      
+      # Em todos os outros casos, mantém o valor original
+      TRUE ~ valor
+    )
+  )
+
+tabelao <- tabelao %>% mutate(
+  classe = str_sub(conta, start = 1L, end = 1L)
+)
+
+
+datatable(tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)  )
+```
+
+```{r}
+datatable(tabelao %>% group_by(posicao_1, posicao_2, posicao_3, posicao_4) %>% count())
+```
+
+```{r}
+datatable(tabelao %>%
+            filter(
+              posicao_1 == "verificar" |
+                posicao_2 == "verificar" |
+                posicao_3 == "verificar" |
+                posicao_4 == "verificar" ) %>%
+            group_by(conta, ic3.msc, ic3.layout, tipo3.msc, tipo3.layout) %>% count())
+
+
+datatable(tabelao %>%
+            filter(
+              posicao_1 == "verificar" |
+                posicao_2 == "verificar" |
+                posicao_3 == "verificar" |
+                posicao_4 == "verificar" ) %>%
+            group_by(  tipo3.msc, tipo3.layout) %>% count())
+```
