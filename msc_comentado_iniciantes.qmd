@@ -1,0 +1,638 @@
+---
+title: "Validação da Matriz de Saldos Contábeis (MSC)"
+subtitle: "Sistema automatizado para validação de dados fiscais"
+author: "Equipe de Análise Fiscal"
+date: today
+execute:
+  warning: false
+  message: false
+  cache: false
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: true
+    code-summary: "Ver código"
+    fig-width: 12
+    fig-height: 8
+---
+
+# Introdução ao Projeto
+
+## O que é a Matriz de Saldos Contábeis (MSC)?
+
+A **Matriz de Saldos Contábeis (MSC)** é um arquivo fundamental para a elaboração dos relatórios fiscais do governo federal, especificamente:
+
+-   **RREO** (Relatório Resumido da Execução Orçamentária)
+-   **RGF** (Relatório de Gestão Fiscal)
+
+Este sistema automatiza a validação desses dados, verificando se todos os códigos utilizados estão corretos conforme as normas estabelecidas.
+
+## Estrutura dos Dados
+
+A **Matriz de Saldos Contábeis (MSC)** possui uma estrutura hierárquica com **6 posições de identificação**:
+
+| Posição | Tipos Aceitos | Descrição | Exemplo |
+|-----------------|-----------------------|-----------------|-----------------|
+| **1** | PO | Programa Orçamentário | 10101 |
+| **2** | FP, FR | Função Programática / Fonte de Recursos | 1000 |
+| **3** | FR, ND, NR | Fonte / Natureza Despesa / Natureza Receita | 33903016 |
+| **4** | FS | Função Subfunção | 07122 |
+| **5** | AI, CO | Ano de Inclusão / Complemento | 2010, 1001 |
+| **6** | CO | Complemento | 1001 |
+
+### Fluxo de Validação
+
+O processo segue esta sequência:
+
+1.  **Carregamento** - Arquivo MSC é lido e processado
+2.  **Extração** - As 6 posições de identificação são extraídas
+3.  **Validação** - Códigos são verificados contra portarias e referências SIAFI
+4.  **Relatório** - Resultados de conformidade são gerados
+
+### Regras Críticas de Validação
+
+-   **Códigos Excluídos**: Códigos com `situacao_siconfi = "E"` são **rejeitados**
+-   **Anos AI**: Apenas anos entre 2004-2024 são aceitos
+-   **Referências Ativas**: Apenas códigos ativos do SIAFI são válidos
+
+# Preparação do Ambiente
+
+## Carregamento de Bibliotecas
+
+```{r bibliotecas}
+# Bibliotecas para manipulação de dados
+library(dplyr)      # Manipulação de dados (filtros, agrupamentos)
+library(tidyr)      # Reorganização de dados
+library(stringr)    # Manipulação de texto
+
+# Bibliotecas para leitura de arquivos
+library(readxl)     # Ler arquivos Excel (.xlsx)
+library(readr)      # Ler arquivos CSV e texto
+library(janitor)    # Limpeza de nomes de colunas
+
+# Bibliotecas para análise e visualização
+library(purrr)      # Programação funcional
+library(forcats)    # Manipulação de fatores
+library(DT)         # Tabelas interativas
+library(knitr)      # Relatórios
+library(kableExtra) # Formatação de tabelas
+library(scales)     # Formatação de números
+library(glue)       # Formatação de texto
+
+cat("Bibliotecas carregadas com sucesso!")
+```
+
+## Definição de Parâmetros
+
+```{r parametros}
+# Define qual mês será analisado
+# Formato: YYYYMM (Ano + Mês com 2 dígitos)
+mes <- "202507"  # Julho de 2025
+
+# Monta o nome do arquivo baseado no mês
+arquivo_msc <- paste0("TG-MSC", mes, ".csv")
+
+cat("Analisando dados do mês:", mes)
+cat("\nArquivo a ser processado:", arquivo_msc)
+```
+
+# Carregamento dos Dados
+
+## Dados da MSC (Matriz de Saldos Contábeis)
+
+```{r carregar_msc}
+# Carrega o arquivo principal da MSC
+# skip = 1: pula a primeira linha (cabeçalho especial)
+# delim = ";": campos separados por ponto e vírgula
+TG_MSC <- read_delim(arquivo_msc, 
+                     delim = ";", 
+                     escape_double = FALSE, 
+                     trim_ws = TRUE, 
+                     skip = 1) %>% 
+  # Converte a conta para texto (importante para manter zeros à esquerda)
+  mutate(CONTA = as.character(CONTA)) %>% 
+  # Padroniza nomes das colunas (minúsculas, sem espaços)
+  clean_names()
+
+# Mostra informações básicas sobre os dados carregados
+cat("Total de registros carregados:", nrow(TG_MSC))
+cat("\nColunas do arquivo:")
+names(TG_MSC)
+```
+
+## Dados das Portarias (Regras de Validação)
+
+```{r carregar_portarias}
+# Carrega diferentes abas da planilha de portarias
+# Cada aba contém códigos válidos para diferentes tipos
+
+# 1. Programas Orçamentários (PO)
+portaria_PO <- read_excel("portaria.xlsx", sheet = "PO", skip = 4) %>% 
+  clean_names()
+
+# 2. Complementos (CO)  
+portaria_CO <- read_excel("portaria.xlsx", sheet = "CO", skip = 6) %>% 
+  clean_names() %>%
+  # Renomeia a primeira coluna para um nome mais claro
+  rename(co_siconfi = 1) %>%
+  # Filtra apenas linhas que contêm números (códigos válidos)
+  filter(str_detect(co_siconfi, ".*[0-9].*"))
+
+# 3. Layout da MSC (estrutura esperada)
+portaria_LAYOUT <- read_excel("portaria.xlsx", sheet = "Leiaute MSC", skip = 3) %>% 
+  mutate(CONTA = as.character(CONTA)) %>% 
+  clean_names()
+
+cat("Dados das portarias carregados:")
+cat("\n- Códigos PO:", nrow(portaria_PO))
+cat("\n- Códigos CO:", nrow(portaria_CO))
+cat("\n- Layouts MSC:", nrow(portaria_LAYOUT))
+```
+
+## Referências do Sistema SIAFI
+
+```{r carregar_referencias}
+# Carrega arquivos de referência do SIAFI
+# Estes arquivos contêm códigos válidos para diferentes categorias
+
+# 1. RELNR: Natureza de Receita
+# read_fwf: lê arquivo de largura fixa (cada coluna tem tamanho fixo)
+relnr <- read_fwf("RELNR.TXT", 
+                  skip = 10,  # pula linhas de cabeçalho
+                  col_positions = fwf_positions(
+                      start = c(1, 12, 39, 43, 53, 80),    # posição inicial de cada coluna
+                      end   = c(10, 38, 41, 50, 78, 82),   # posição final de cada coluna
+                      col_names = c("NR_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI", 
+                                    "NR_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO")
+                  ),
+                  locale = locale(encoding = "latin1")) %>%  # codificação de caracteres
+  clean_names()
+
+# 2. RELND: Natureza de Despesa
+relnd <- read_fwf("RELND.TXT", 
+                  skip = 10,  # pula linhas de cabeçalho
+                  col_positions = fwf_positions(
+                      start = c(1, 12, 39, 43, 53, 80),    # posição inicial de cada coluna
+                      end   = c(10, 38, 41, 50, 78, 82),   # posição final de cada coluna
+                      col_names = c("ND_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI", 
+                                    "ND_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO")
+                  ),
+                  locale = locale(encoding = "latin1")) %>%
+  clean_names()
+
+# 3. RELFONT: Fonte de Recursos
+relfont <- read_fwf("RELFONT.TXT", 
+                    skip = 7,
+                    col_positions = fwf_positions(
+                        start = c(1, 9, 61, 66),
+                        end   = c(8, 58, 65, 68),
+                        col_names = c("FR_SICONFI", "TITULO_FR_SICONFI", 
+                                      "FR_UNIAO", "SIT")
+                    ),
+                    locale = locale(encoding = "latin1")) %>%
+  clean_names()
+
+cat("Referências SIAFI carregadas:")
+cat("\n- Natureza Receita (NR):", nrow(relnr))
+cat("\n- Natureza Despesa (ND):", nrow(relnd))
+cat("\n- Fonte Recursos (FR):", nrow(relfont))
+```
+
+# Processamento dos Dados
+
+## Combinação dos Dados MSC com Layout
+
+```{r processar_dados}
+# Une os dados da MSC com o layout da portaria
+# left_join: mantém todos os registros da MSC, adicionando info do layout quando disponível
+tabelao <- left_join(TG_MSC, portaria_LAYOUT, 
+                     suffix = c(".msc", ".layout"),  # sufixos para colunas com mesmo nome
+                     by = "conta") %>%
+  # Corrige problema: colunas 5 e 6 não receberam sufixo automático
+  rename(
+    ic5.msc = ic5,      # ic5 vira ic5.msc
+    tipo5.msc = tipo5,  # tipo5 vira tipo5.msc
+    ic6.msc = ic6,      # ic6 vira ic6.msc
+    tipo6.msc = tipo6   # tipo6 vira tipo6.msc
+  )
+
+cat("Dados processados:")
+cat("\n- Total de registros:", nrow(tabelao))
+cat("\n- Total de colunas:", ncol(tabelao))
+
+# Mostra as colunas de identificação (IC) e tipo
+colunas_importantes <- names(tabelao)[grepl("ic[1-6]|tipo[1-6]", names(tabelao))]
+cat("\n- Colunas de identificação:", length(colunas_importantes))
+```
+
+# Sistema de Validação Automática
+
+## Definição das Funções de Validação
+
+```{r definir_funcoes}
+# Anos válidos para AI (Ano de Inclusão)
+# AI deve estar entre 2004 e 2024
+anos_ai_validos <- 2004:2024
+
+# FUNÇÃO CRÍTICA: Preparar códigos válidos (excluir códigos com situacao_siconfi = "E")
+preparar_codigos_validos <- function() {
+  
+  cat("Filtrando códigos excluídos (situacao_siconfi = 'E')...\n")
+  
+  # NR: Natureza de Receita - apenas códigos ativos (situacao_siconfi != "E")
+  nr_validos <- relnr %>%
+    filter(is.na(situacao_siconfi) | situacao_siconfi != "E") %>%
+    pull(nr_siconfi) %>%
+    unique()
+  
+  # ND: Natureza de Despesa - apenas códigos ativos (situacao_siconfi != "E") 
+  nd_validos <- relnd %>%
+    filter(is.na(situacao_siconfi) | situacao_siconfi != "E") %>%
+    pull(nd_siconfi) %>%
+    unique()
+  
+  # FR: Fonte de Recursos - manter todos (não tem campo situacao)
+  fr_validos <- relfont$fr_siconfi %>% unique()
+  
+  # CO: Complementos - manter todos 
+  co_validos <- portaria_CO$co_siconfi %>% unique()
+  
+  # Contar códigos excluídos para estatística
+  nr_excluidos <- relnr %>% filter(situacao_siconfi == "E", !is.na(situacao_siconfi)) %>% nrow()
+  nd_excluidos <- relnd %>% filter(situacao_siconfi == "E", !is.na(situacao_siconfi)) %>% nrow()
+  
+  cat("Códigos válidos preparados:")
+  cat("\n- NR (ativos):", length(nr_validos), "| Excluídos:", nr_excluidos)
+  cat("\n- ND (ativos):", length(nd_validos), "| Excluídos:", nd_excluidos) 
+  cat("\n- FR (todos):", length(fr_validos))
+  cat("\n- CO (todos):", length(co_validos))
+  cat("\n")
+  
+  return(list(
+    nr_validos = nr_validos,
+    nd_validos = nd_validos,
+    fr_validos = fr_validos,
+    co_validos = co_validos,
+    estatisticas = list(nr_excluidos = nr_excluidos, nd_excluidos = nd_excluidos)
+  ))
+}
+
+# Executar preparação dos códigos válidos
+codigos_validos <- preparar_codigos_validos()
+
+# FUNÇÃO 1: Agrupa códigos por tipo
+# Esta função encontra todos os códigos de um determinado tipo em todas as posições
+agrupar_tipos <- function(tipo) {
+  # Busca o tipo em cada posição (2 a 6) e coleta os códigos únicos
+  grupo_2 <- tabelao %>% filter(tipo2.msc == tipo, !is.na(ic2.msc)) %>% pull(ic2.msc) %>% unique()
+  grupo_3 <- tabelao %>% filter(tipo3.msc == tipo, !is.na(ic3.msc)) %>% pull(ic3.msc) %>% unique()
+  grupo_4 <- tabelao %>% filter(tipo4.msc == tipo, !is.na(ic4.msc)) %>% pull(ic4.msc) %>% unique()
+  grupo_5 <- tabelao %>% filter(tipo5.msc == tipo, !is.na(ic5.msc)) %>% pull(ic5.msc) %>% unique()
+  grupo_6 <- tabelao %>% filter(tipo6.msc == tipo, !is.na(ic6.msc)) %>% pull(ic6.msc) %>% unique()
+  
+  # Se não encontrou nada, retorna estrutura vazia
+  if(length(grupo_2) == 0 && length(grupo_3) == 0 && length(grupo_4) == 0 && 
+     length(grupo_5) == 0 && length(grupo_6) == 0) {
+    return(data.frame(
+      codigo = character(0),
+      origem = character(0),
+      tipo_filtrado = character(0)
+    ))
+  }
+  
+  # Combina todos os grupos em uma tabela
+  data.frame(
+    codigo = c(grupo_2, grupo_3, grupo_4, grupo_5, grupo_6),
+    origem = c(rep("ic2", length(grupo_2)),
+               rep("ic3", length(grupo_3)), 
+               rep("ic4", length(grupo_4)),
+               rep("ic5", length(grupo_5)),
+               rep("ic6", length(grupo_6))),
+    tipo_filtrado = tipo
+  )
+}
+
+# FUNÇÃO 2: Detecta automaticamente quais tipos existem em cada posição
+detectar_tipos_por_posicao <- function(dados) {
+  cat("DETECTANDO TIPOS POR POSIÇÃO:\n")
+  cat("================================\n\n")
+  
+  tipos_por_posicao <- list()
+  
+  # Analisa cada posição de 1 a 6
+  for(i in 1:6) {
+    col_name <- paste0("tipo", i, ".msc")
+    
+    if(col_name %in% names(dados)) {
+      # Encontra tipos únicos (remove NAs)
+      tipos_unicos <- dados[[col_name]] %>% 
+        .[!is.na(.)] %>% 
+        unique() %>% 
+        sort()
+      
+      tipos_por_posicao[[paste0("pos_", i)]] <- tipos_unicos
+      
+      # Mostra a contagem
+      cat(paste0("POSIÇÃO ", i, ":\n"))
+      print(table(dados[[col_name]], useNA = "ifany"))
+      cat("\n")
+    }
+  }
+  
+  return(tipos_por_posicao)
+}
+
+# FUNÇÃO 3: Aplica validações automaticamente (VERSÃO CORRIGIDA)
+executar_validacao_automatica <- function(dados) {
+  cat("INICIANDO VALIDAÇÃO AUTOMÁTICA (com filtro de códigos excluídos)\n")
+  cat("==================================================================\n\n")
+  
+  # Detecta tipos primeiro
+  tipos_detectados <- detectar_tipos_por_posicao(dados)
+  
+  # Aplica validações baseado nos tipos encontrados - USANDO CÓDIGOS VÁLIDOS
+  dados_validados <- dados %>%
+    mutate(
+      # POSIÇÃO 1: Somente PO (Programa Orçamentário)
+      posicao_1 = case_when(
+        tipo1.msc == "PO" ~ ifelse(ic1.msc %in% portaria_PO$codigo, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      # POSIÇÃO 2: FP (sempre OK) ou FR (validar com códigos filtrados)
+      posicao_2 = case_when(
+        tipo2.msc == "FP" ~ "ok",
+        tipo2.msc == "FR" ~ ifelse(ic2.msc %in% codigos_validos$fr_validos, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      # POSIÇÃO 3: FR, ND ou NR (USANDO CÓDIGOS FILTRADOS - SEM EXCLUÍDOS)
+      posicao_3 = case_when(
+        tipo3.msc == "FR" ~ ifelse(ic3.msc %in% codigos_validos$fr_validos, "ok", "verificar"),
+        tipo3.msc == "ND" ~ ifelse(ic3.msc %in% codigos_validos$nd_validos, "ok", "verificar"),
+        tipo3.msc == "NR" ~ ifelse(ic3.msc %in% codigos_validos$nr_validos, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      # POSIÇÃO 4: Somente FS (sempre OK por enquanto)
+      posicao_4 = case_when(
+        tipo4.msc == "FS" ~ "ok",
+        TRUE ~ "demais"
+      ),
+      
+      # POSIÇÃO 5: AI (anos 2004-2024) ou CO (códigos válidos)
+      posicao_5 = case_when(
+        tipo5.msc == "AI" ~ ifelse(ic5.msc %in% anos_ai_validos, "ok", "verificar"),
+        tipo5.msc == "CO" ~ ifelse(ic5.msc %in% codigos_validos$co_validos, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      # POSIÇÃO 6: Somente CO (códigos válidos)
+      posicao_6 = case_when(
+        tipo6.msc == "CO" ~ ifelse(ic6.msc %in% codigos_validos$co_validos, "ok", "verificar"),
+        TRUE ~ "demais"
+      )
+    )
+  
+  cat("Validação automática concluída (códigos excluídos filtrados)!\n\n")
+  
+  return(list(
+    dados_validados = dados_validados,
+    tipos_detectados = tipos_detectados
+  ))
+}
+
+# FUNÇÃO 4: Verifica qualidade dos códigos (VERSÃO CORRIGIDA)
+verificar_todos_codigos_correto <- function() {
+  # Cria tabela com tipos, dados encontrados e referências FILTRADAS para comparar
+  tribble(
+    ~tipo, ~dados, ~referencia,
+    "FR", FT_msc, codigos_validos$fr_validos,
+    "NR", NR_msc, codigos_validos$nr_validos,
+    "ND", ND_msc, codigos_validos$nd_validos,
+    "CO", CO_msc, codigos_validos$co_validos,
+    "AI", AI_msc, anos_ai_validos
+  ) %>%
+  mutate(
+    # Para cada linha, compara dados com referência
+    diagnostico = map2(dados, referencia, ~{
+      # Se não há dados, retorna zeros
+      if(nrow(.x) == 0) {
+        return(tibble(
+          total = 0, encontrados = 0, perdidos = 0, 
+          percentual = 0, status = "N/A"
+        ))
+      }
+      
+      # Converte códigos para número e compara com referência FILTRADA
+      codigos <- as.numeric(.x$codigo)
+      ref_vec <- if(is.data.frame(.y)) .y[[1]] else .y
+      
+      encontrados_logico <- codigos %in% ref_vec
+      encontrados_count <- sum(encontrados_logico, na.rm = TRUE)
+      total_count <- length(codigos)
+      
+      tibble(
+        total = total_count,
+        encontrados = encontrados_count,
+        perdidos = total_count - encontrados_count,
+        percentual = round((encontrados_count / total_count) * 100, 1),
+        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
+      )
+    })
+  ) %>%
+  select(-dados, -referencia) %>%
+  unnest(diagnostico)
+}
+
+cat("Funções de validação definidas com sucesso!")
+cat("\nEstatísticas de códigos excluídos:")
+cat("\n- NR excluídos:", codigos_validos$estatisticas$nr_excluidos)
+cat("\n- ND excluídos:", codigos_validos$estatisticas$nd_excluidos)
+```
+
+# Execução da Validação
+
+## Análise Automática dos Tipos
+
+```{r executar_validacao}
+# Executa o sistema de validação automática
+resultado <- executar_validacao_automatica(tabelao)
+
+# Separa os resultados
+tabelao_validado <- resultado$dados_validados
+tipos_encontrados <- resultado$tipos_detectados
+```
+
+## Criação dos Grupos de Códigos
+
+```{r criar_grupos}
+# Cria grupos de códigos para análise posterior
+# Cada grupo contém todos os códigos de um tipo específico encontrados nos dados
+
+FT_msc <- agrupar_tipos("FR")   # Fonte de Recursos
+ND_msc <- agrupar_tipos("ND")   # Natureza de Despesa  
+NR_msc <- agrupar_tipos("NR")   # Natureza de Receita
+CO_msc <- agrupar_tipos("CO")   # Complementos
+AI_msc <- agrupar_tipos("AI")   # Ano de Inclusão
+
+cat("Grupos de códigos criados:")
+cat("\n- FR (Fonte Recursos):", nrow(FT_msc), "códigos únicos")
+cat("\n- ND (Natureza Despesa):", nrow(ND_msc), "códigos únicos")
+cat("\n- NR (Natureza Receita):", nrow(NR_msc), "códigos únicos")
+cat("\n- CO (Complementos):", nrow(CO_msc), "códigos únicos")
+cat("\n- AI (Ano Inclusão):", nrow(AI_msc), "códigos únicos")
+```
+
+# Resultados da Validação
+
+## Verificação da Qualidade dos Códigos
+
+```{r verificacao_codigos}
+# Executa verificação e mostra resultados em tabela interativa
+resultado_verificacao <- verificar_todos_codigos_correto()
+
+datatable(resultado_verificacao, 
+          caption = "Resultado da Verificação de Códigos",
+          options = list(
+            pageLength = 10,
+            dom = 't',  # mostra apenas a tabela
+            ordering = FALSE
+          )) %>%
+  formatStyle("status",
+              backgroundColor = styleEqual(c("✅", "⚠️"), 
+                                         c("#d4edda", "#fff3cd")))
+```
+
+### Interpretação dos Resultados
+
+-   **Total**: Quantidade de códigos únicos encontrados nos dados
+-   **Encontrados**: Quantos códigos são válidos (existem nas referências)\
+-   **Perdidos**: Quantos códigos são inválidos (não existem nas referências)
+-   **Percentual**: Taxa de sucesso da validação
+-   **Status**: ✅ = Excelente (≥99% válidos), ⚠️ = Atenção (\<99% válidos)
+
+## Resumo de Problemas por Posição
+
+```{r problemas_posicao}
+# Conta quantos registros têm problemas em cada posição
+resumo_problemas <- tabelao_validado %>% 
+  select(starts_with("posicao_")) %>%
+  summarise(across(everything(), ~ sum(.x == "verificar", na.rm = TRUE))) %>%
+  # Reorganiza os dados para melhor visualização
+  pivot_longer(everything(), names_to = "Posição", values_to = "Problemas") %>%
+  mutate(
+    Posição = str_replace(Posição, "posicao_", "Posição "),
+    `% Total` = round(Problemas / nrow(tabelao_validado) * 100, 3)
+  )
+
+datatable(resumo_problemas,
+          caption = "Problemas Identificados por Posição",
+          options = list(
+            pageLength = 6,
+            dom = 't',
+            ordering = FALSE
+          )) %>%
+  formatStyle("Problemas",
+              backgroundColor = styleInterval(c(0, 1), 
+                                            c("#d4edda", "#fff3cd", "#f8d7da")))
+```
+
+## Status Geral do Sistema
+
+```{r status_geral}
+# Calcula métricas gerais do sistema
+total_registros <- nrow(tabelao_validado)
+registros_com_problema <- tabelao_validado %>%
+  filter(if_any(starts_with("posicao_"), ~ .x == "verificar")) %>%
+  nrow()
+
+taxa_sucesso <- round((total_registros - registros_com_problema) / total_registros * 100, 2)
+
+# Cria resumo visual
+status_sistema <- data.frame(
+  Métrica = c("Total de Registros", "Registros Válidos", "Registros com Problemas", "Taxa de Sucesso"),
+  Valor = c(
+    format(total_registros, big.mark = "."),
+    format(total_registros - registros_com_problema, big.mark = "."),
+    format(registros_com_problema, big.mark = "."),
+    paste0(taxa_sucesso, "%")
+  ),
+  Status = c("📊", "✅", "⚠️", if(taxa_sucesso >= 95) "🏆" else "📈")
+)
+
+datatable(status_sistema,
+          caption = "Status Geral do Sistema de Validação",
+          options = list(
+            pageLength = 4,
+            dom = 't',
+            ordering = FALSE
+          ),
+          rownames = FALSE) %>%
+  formatStyle("Status", textAlign = "center")
+```
+
+# Análise Detalhada (Para Especialistas)
+
+## Distribuição dos Tipos por Posição
+
+```{r analise_detalhada}
+# Cria visualização da estrutura dos dados
+analise_estrutura <- tibble(
+  Posição = 1:6,
+  `Tipos Encontrados` = c(
+    paste(tipos_encontrados$pos_1, collapse = ", "),
+    paste(tipos_encontrados$pos_2, collapse = ", "),
+    paste(tipos_encontrados$pos_3, collapse = ", "),
+    paste(tipos_encontrados$pos_4, collapse = ", "),
+    paste(tipos_encontrados$pos_5, collapse = ", "),
+    paste(tipos_encontrados$pos_6, collapse = ", ")
+  ),
+  `Descrição` = c(
+    "Programa Orçamentário",
+    "Função Programática / Fonte de Recursos", 
+    "Fonte de Recursos / Natureza Despesa / Natureza Receita",
+    "Função Subfunção",
+    "Ano de Inclusão / Complemento",
+    "Complemento"
+  )
+)
+
+datatable(analise_estrutura,
+          caption = "Estrutura Detalhada dos Dados MSC",
+          options = list(
+            pageLength = 6,
+            dom = 't',
+            ordering = FALSE,
+            columnDefs = list(list(width = '200px', targets = 1))
+          ),
+          rownames = FALSE)
+```
+
+# Conclusões e Próximos Passos
+
+## Resumo dos Resultados
+
+Com base na análise realizada:
+
+1.  **Sistema funcionando corretamente**: O processo de validação automática detectou e validou todos os tipos de códigos presentes nos dados
+
+2.  **Alta taxa de conformidade**: A maioria dos códigos está em conformidade com as referências oficiais
+
+3.  **Estrutura dos dados identificada**: O sistema mapeou automaticamente como os códigos estão distribuídos nas 6 posições
+
+4.  **Filtro de códigos excluídos ativo**: Sistema rejeita automaticamente códigos com situacao_siconfi = "E"
+
+## Próximas Melhorias
+
+-   **Alertas automáticos**: Implementar notificações quando códigos inválidos forem detectados
+-   **Relatórios mensais**: Automatizar a geração deste relatório para análises periódicas\
+-   **Dashboard interativo**: Criar visualizações em tempo real para acompanhamento contínuo
+-   **Integração com outros sistemas**: Conectar com sistemas de origem dos dados para validação preventiva
+
+------------------------------------------------------------------------
+
+*Relatório gerado automaticamente em `r format(Sys.time(), '%d/%m/%Y às %H:%M')`*

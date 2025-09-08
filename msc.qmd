@@ -67,23 +67,12 @@ portaria_PO <- read_excel("portaria.xlsx", sheet = "PO",
 ```
 
 ```{r}
-portaria_ND <- read_excel("portaria.xlsx", sheet = "ND", 
-    skip = 6)%>% clean_names()
-```
-
-```{r}
-portaria_FR <- read_excel("portaria.xlsx", sheet = "FR", 
-    skip = 12)%>% clean_names()
-```
-
-```{r}
 portaria_CO <- read_excel("portaria.xlsx", sheet = "CO", 
-    skip = 4)%>% clean_names()
-```
+    skip = 6)%>% clean_names() 
 
-```{r}
-portaria_NR <- read_excel("portaria.xlsx", sheet = "NR", 
-    skip = 4)%>% clean_names()
+colnames(portaria_CO)[1] <- "co_siconfi"
+
+portaria_CO <- portaria_CO %>% filter(str_detect(co_siconfi,".*[0-9].*" ))
 
 
 ```
@@ -96,7 +85,21 @@ portaria_LAYOUT <- read_excel("portaria.xlsx", sheet = "Leiaute MSC",
 ```
 
 ```{r}
-tabelao <- left_join(TG_MSC, portaria_LAYOUT, suffix = c(".msc", ".layout"), by = "conta" )
+# Fazer o left_join e corrigir os sufixos das colunas 5 e 6
+tabelao <- left_join(TG_MSC, portaria_LAYOUT, suffix = c(".msc", ".layout"), by = "conta") %>%
+  # Renomear colunas que não receberam sufixo para manter consistência
+  rename(
+    ic5.msc = ic5,
+    tipo5.msc = tipo5,
+    ic6.msc = ic6, 
+    tipo6.msc = tipo6
+  )
+
+# Verificar se funcionou
+cat("Colunas relacionadas a IC e TIPO:\n")
+names(tabelao)[grepl("ic[1-6]|tipo[1-6]", names(tabelao))]
+
+
 ```
 
 ```{r}
@@ -104,10 +107,6 @@ tabelao <- left_join(TG_MSC, portaria_LAYOUT, suffix = c(".msc", ".layout"), by 
 #| warning: false
 
 
-RELFONT <- read_table("~/R/msc/RELFONT.txt", 
-                          skip = 4,
-                          col_names = TRUE) %>%
-     select(1) %>% unique()  # Primeira coluna
 
 
 # Importar RELNR.TXT - arquivo de largura fixa
@@ -135,54 +134,336 @@ relnd <- read_fwf("RELND.TXT",
                   locale = locale(encoding = "latin1")) %>%
     clean_names()
 
-RELND <- read_table("RELND.TXT", 
-                          skip = 7,
-                          col_names = TRUE)  # Primeira coluna
+# Importar RELFONT.TXT - arquivo de largura fixa com 4 colunas
+relfont <- read_fwf("RELFONT.TXT", 
+                    skip = 7,  # pular cabeçalho
+                    col_positions = fwf_positions(
+                        start = c(1, 9, 61, 66),
+                        end   = c(8, 58, 65, 68),
+                        col_names = c("FR_SICONFI", "TITULO_FR_SICONFI", 
+                                      "FR_UNIAO", "SIT")
+                    ),
+                    locale = locale(encoding = "latin1")) %>%
+    clean_names()
 
-RELFUNCAO  <- read_csv("RELFUNCAO.csv")
+
+
 
 
 todas_funcoes <- read_csv("todas_funcoes.txt")
 
 
-codigos_nr <- portaria_NR$nr %>% unique()
 
-codigos_nd <- portaria_ND$codigo %>% unique()
 
-tabelao <- tabelao %>% 
-  mutate (posicao_1 = case_when(
-    tipo1.msc == "PO" ~ ifelse(ic1.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo1.msc == "FR" ~ ifelse(ic1.msc %in% c(RELFONT$FR),"ok","verificar" ),
-    tipo1.msc == "ND" ~ ifelse(ic1.msc %in% c(RELND$ND),"ok","verificar" ),
-    tipo1.msc == "NR" ~ ifelse(ic1.msc %in% c(RELNR$NR),"ok","verificar" ),
-    TRUE ~ "demais"
-    
-  ),
+
+```
+
+```{r}
+# SISTEMA DE VALIDAÇÃO AUTOMÁTICA
+# Detecta tipos existentes e gera validações dinamicamente
+
+#' Detecta tipos existentes em cada posição
+#' @param dados Dataframe com dados MSC
+#' @return Lista com tipos por posição
+detectar_tipos_por_posicao <- function(dados) {
   
-  posicao_2 = case_when(
-    tipo2.msc == "PO" ~ ifelse(ic2.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo2.msc == "FR" ~ ifelse(ic2.msc %in% c(RELFONT$FR),"ok","verificar" ),
-    tipo2.msc == "ND" ~ ifelse(ic2.msc %in% c(RELND$ND),"ok","verificar" ),
-    tipo2.msc == "NR" ~ ifelse(ic2.msc %in% c(RELNR$NR),"ok","verificar" ),
-    TRUE ~ "demais"
+  cat("🔍 DETECTANDO TIPOS POR POSIÇÃO:\n")
+  cat("================================\n\n")
+  
+  tipos_por_posicao <- list()
+  
+  for(i in 1:6) {
+    col_name <- paste0("tipo", i, ".msc")
     
-  ),
-   posicao_3 = case_when(
-    tipo3.msc == "PO" ~ ifelse(ic3.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo3.msc == "FR" ~ ifelse(ic3.msc %in% c(RELFONT$FR),"ok","verificar" ),
-    tipo3.msc == "ND" ~ ifelse(ic3.msc %in% c(RELND$ND),"ok","verificar" ),
-    tipo3.msc == "NR" ~ ifelse(ic3.msc %in% c(RELNR$NR),"ok","verificar" ),
-    TRUE ~ "demais"
+    if(col_name %in% names(dados)) {
+      tipos_unicos <- dados[[col_name]] %>% 
+        .[!is.na(.)] %>% 
+        unique() %>% 
+        sort()
+      
+      tipos_por_posicao[[paste0("pos_", i)]] <- tipos_unicos
+      
+      # Mostrar contagem
+      cat(paste0("POSIÇÃO ", i, ":\n"))
+      print(table(dados[[col_name]], useNA = "ifany"))
+      cat("\n")
+    }
+  }
+  
+  return(tipos_por_posicao)
+}
+
+#' Gera validações dinamicamente baseado nos tipos detectados
+#' @param dados Dataframe MSC
+#' @param tipos_detectados Lista retornada por detectar_tipos_por_posicao
+#' @return Dataframe com validações aplicadas
+aplicar_validacoes_automaticas <- function(dados, tipos_detectados) {
+  
+  cat("⚙️ APLICANDO VALIDAÇÕES AUTOMÁTICAS:\n")
+  cat("====================================\n\n")
+  
+  # Preparar anos válidos para AI
+  anos_ai_validos <- 2004:2024
+  
+  # Construir validações dinamicamente
+  dados_validados <- dados
+  
+  for(i in 1:6) {
+    pos_key <- paste0("pos_", i)
+    col_tipo <- paste0("tipo", i, ".msc")
+    col_ic <- paste0("ic", i, ".msc")
+    col_validacao <- paste0("posicao_", i)
     
-  ),
-  posicao_4 = case_when(
-    tipo4.msc == "PO" ~ ifelse(ic4.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo4.msc == "FR" ~ ifelse(ic4.msc %in% c(RELFONT$FR),"ok","verificar" ),
-    tipo4.msc == "ND" ~ ifelse(ic4.msc %in% c(RELND$ND),"ok","verificar" ),
-    tipo4.msc == "NR" ~ ifelse(ic4.msc %in% c(RELNR$NR),"ok","verificar" ),
-    TRUE ~ "demais"
-    
+    if(pos_key %in% names(tipos_detectados) && 
+       col_tipo %in% names(dados) && 
+       col_ic %in% names(dados)) {
+      
+      tipos_nesta_posicao <- tipos_detectados[[pos_key]]
+      
+      cat(paste0("Posição ", i, ": ", paste(tipos_nesta_posicao, collapse = ", "), "\n"))
+      
+      # Construir case_when dinamicamente
+      dados_validados <- dados_validados %>%
+        mutate(
+          !!col_validacao := case_when(
+            # PO
+            if("PO" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "PO" ~ ifelse(.data[[col_ic]] %in% portaria_PO$codigo, "ok", "verificar")
+            } else { NULL },
+            
+            # FR
+            if("FR" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "FR" ~ ifelse(.data[[col_ic]] %in% relfont$fr_siconfi, "ok", "verificar")
+            } else { NULL },
+            
+            # ND
+            if("ND" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "ND" ~ ifelse(.data[[col_ic]] %in% relnd$nd_siconfi, "ok", "verificar")
+            } else { NULL },
+            
+            # NR
+            if("NR" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "NR" ~ ifelse(.data[[col_ic]] %in% relnr$nr_siconfi, "ok", "verificar")
+            } else { NULL },
+            
+            # CO
+            if("CO" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "CO" ~ ifelse(.data[[col_ic]] %in% portaria_CO$co_siconfi, "ok", "verificar")
+            } else { NULL },
+            
+            # AI
+            if("AI" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "AI" ~ ifelse(.data[[col_ic]] %in% anos_ai_validos, "ok", "verificar")
+            } else { NULL },
+            
+            # FP e FS - considerados sempre válidos por enquanto
+            if("FP" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "FP" ~ "ok"
+            } else { NULL },
+            
+            if("FS" %in% tipos_nesta_posicao) {
+              .data[[col_tipo]] == "FS" ~ "ok"
+            } else { NULL },
+            
+            # Demais casos
+            TRUE ~ "demais"
+          )
+        )
+    }
+  }
+  
+  cat("\n✅ Validações aplicadas dinamicamente!\n\n")
+  return(dados_validados)
+}
+
+#' Versão simplificada usando mutate direto
+aplicar_validacoes_simples <- function(dados, tipos_detectados) {
+  
+  cat("⚙️ APLICANDO VALIDAÇÕES (versão simplificada):\n")
+  cat("==============================================\n\n")
+  
+  anos_ai_validos <- 2004:2024
+  
+  # Aplicar validações baseado nos tipos detectados
+  dados %>%
+    mutate(
+      # Posição 1
+      posicao_1 = case_when(
+        if("PO" %in% tipos_detectados$pos_1) tipo1.msc == "PO" ~ ifelse(ic1.msc %in% portaria_PO$codigo, "ok", "verificar") else NULL,
+        TRUE ~ "demais"
+      ),
+      
+      # Posição 2  
+      posicao_2 = case_when(
+        if("FP" %in% tipos_detectados$pos_2) tipo2.msc == "FP" ~ "ok" else NULL,
+        if("FR" %in% tipos_detectados$pos_2) tipo2.msc == "FR" ~ ifelse(ic2.msc %in% relfont$fr_siconfi, "ok", "verificar") else NULL,
+        TRUE ~ "demais"
+      ),
+      
+      # Posição 3
+      posicao_3 = case_when(
+        if("FR" %in% tipos_detectados$pos_3) tipo3.msc == "FR" ~ ifelse(ic3.msc %in% relfont$fr_siconfi, "ok", "verificar") else NULL,
+        if("ND" %in% tipos_detectados$pos_3) tipo3.msc == "ND" ~ ifelse(ic3.msc %in% relnd$nd_siconfi, "ok", "verificar") else NULL,
+        if("NR" %in% tipos_detectados$pos_3) tipo3.msc == "NR" ~ ifelse(ic3.msc %in% relnr$nr_siconfi, "ok", "verificar") else NULL,
+        TRUE ~ "demais"
+      ),
+      
+      # Posição 4
+      posicao_4 = case_when(
+        if("FS" %in% tipos_detectados$pos_4) tipo4.msc == "FS" ~ "ok" else NULL,
+        TRUE ~ "demais"
+      ),
+      
+      # Posição 5
+      posicao_5 = case_when(
+        if("AI" %in% tipos_detectados$pos_5) tipo5.msc == "AI" ~ ifelse(ic5.msc %in% anos_ai_validos, "ok", "verificar") else NULL,
+        if("CO" %in% tipos_detectados$pos_5) tipo5.msc == "CO" ~ ifelse(ic5.msc %in% portaria_CO$co_siconfi, "ok", "verificar") else NULL,
+        TRUE ~ "demais"
+      ),
+      
+      # Posição 6
+      posicao_6 = case_when(
+        if("CO" %in% tipos_detectados$pos_6) tipo6.msc == "CO" ~ ifelse(ic6.msc %in% portaria_CO$co_siconfi, "ok", "verificar") else NULL,
+        TRUE ~ "demais"
+      )
+    )
+}
+
+#' Função principal que executa todo o processo automaticamente
+executar_validacao_automatica <- function(dados) {
+  
+  cat("🚀 INICIANDO VALIDAÇÃO AUTOMÁTICA\n")
+  cat("=================================\n\n")
+  
+  # Passo 1: Detectar tipos
+  tipos_detectados <- detectar_tipos_por_posicao(dados)
+  
+  # Passo 2: Aplicar validações
+  dados_validados <- dados %>%
+    mutate(
+      # Construir validações baseado nos tipos detectados
+      posicao_1 = case_when(
+        tipo1.msc == "PO" ~ ifelse(ic1.msc %in% portaria_PO$codigo, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      posicao_2 = case_when(
+        tipo2.msc == "FP" ~ "ok",
+        tipo2.msc == "FR" ~ ifelse(ic2.msc %in% relfont$fr_siconfi, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      posicao_3 = case_when(
+        tipo3.msc == "FR" ~ ifelse(ic3.msc %in% relfont$fr_siconfi, "ok", "verificar"),
+        tipo3.msc == "ND" ~ ifelse(ic3.msc %in% relnd$nd_siconfi, "ok", "verificar"),
+        tipo3.msc == "NR" ~ ifelse(ic3.msc %in% relnr$nr_siconfi, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      posicao_4 = case_when(
+        tipo4.msc == "FS" ~ "ok",
+        TRUE ~ "demais"
+      ),
+      
+      posicao_5 = case_when(
+        tipo5.msc == "AI" ~ ifelse(ic5.msc %in% (2004:2024), "ok", "verificar"),
+        tipo5.msc == "CO" ~ ifelse(ic5.msc %in% portaria_CO$co_siconfi, "ok", "verificar"),
+        TRUE ~ "demais"
+      ),
+      
+      posicao_6 = case_when(
+        tipo6.msc == "CO" ~ ifelse(ic6.msc %in% portaria_CO$co_siconfi, "ok", "verificar"),
+        TRUE ~ "demais"
+      )
+    )
+  
+  cat("✅ Validação automática concluída!\n\n")
+  
+  return(list(
+    dados_validados = dados_validados,
+    tipos_detectados = tipos_detectados
   ))
+}
+
+
+```
+
+```{r}
+# EXEMPLO DE USO:
+resultado <- executar_validacao_automatica(tabelao)
+tabelao_validado <- resultado$dados_validados
+tipos_encontrados <- resultado$tipos_detectados
+```
+
+```{r}
+# Verificar se funcionaram
+# Criar anos válidos para AI
+anos_ai_validos <- 2004:2024
+
+# Criar grupos (se não existirem)
+FT_msc <- agrupar_tipos("FR")   
+ND_msc <- agrupar_tipos("ND")   
+NR_msc <- agrupar_tipos("NR")   
+CO_msc <- agrupar_tipos("CO")   
+AI_msc <- agrupar_tipos("AI")
+
+# Função para verificar todos os códigos
+verificar_todos_codigos_correto <- function() {
+  
+  tribble(
+    ~tipo, ~dados, ~referencia,
+    "FR", FT_msc, relfont$fr_siconfi,
+    "NR", NR_msc, relnr$nr_siconfi,
+    "ND", ND_msc, relnd$nd_siconfi,
+    "CO", CO_msc, portaria_CO$co_siconfi,
+    "AI", AI_msc, anos_ai_validos
+  ) %>%
+  mutate(
+    diagnostico = map2(dados, referencia, ~{
+      if(nrow(.x) == 0) {
+        return(tibble(
+          total = 0,
+          encontrados = 0,
+          perdidos = 0,
+          percentual = 0,
+          status = "N/A"
+        ))
+      }
+      
+      codigos <- as.numeric(.x$codigo)
+      ref_vec <- if(is.data.frame(.y)) .y[[1]] else .y
+      
+      encontrados_logico <- codigos %in% ref_vec
+      encontrados_count <- sum(encontrados_logico, na.rm = TRUE)
+      total_count <- length(codigos)
+      
+      tibble(
+        total = total_count,
+        encontrados = encontrados_count,
+        perdidos = total_count - encontrados_count,
+        percentual = round((encontrados_count / total_count) * 100, 1),
+        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
+      )
+    })
+  ) %>%
+  select(-dados, -referencia) %>%
+  unnest(diagnostico)
+}
+
+datatable(verificar_todos_codigos_correto())
+```
+
+```{r}
+# Resumo de problemas
+datatable(tabelao_validado %>% 
+  select(starts_with("posicao_")) %>%
+  summarise(across(everything(), ~ sum(.x == "verificar", na.rm = TRUE))))
+```
+
+```{r}
+# Ver registros com problemas
+problemas <- tabelao_validado %>%
+  filter(if_any(starts_with("posicao_"), ~ .x == "verificar"))
 ```
 
 ```{r}
@@ -208,324 +489,4 @@ tabelao <- tabelao %>% mutate(
 
 
 datatable(tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)  )
-```
-
-```{r}
-datatable(tabelao %>% group_by(posicao_1, posicao_2, posicao_3, posicao_4) %>% count())
-```
-
-```{r}
-
-#| include: false
-#| warning: false
-datatable(tabelao %>%
-            filter(
-              posicao_1 == "verificar" |
-                posicao_2 == "verificar" |
-                posicao_3 == "verificar" |
-                posicao_4 == "verificar" ) %>%
-            group_by(conta, ic3.msc, ic3.layout, tipo3.msc, tipo3.layout) %>% count())
-
-
-datatable(tabelao %>%
-            filter(
-              posicao_1 == "verificar" |
-                posicao_2 == "verificar" |
-                posicao_3 == "verificar" |
-                posicao_4 == "verificar" ) %>%
-            group_by(  tipo3.msc, tipo3.layout) %>% count())
-```
-
-```{r}
-#| include: false
-#| warning: false
-
-batimento <- read_excel("batimento.xlsx", 
-    sheet = "Teste existência IC", skip = 2) %>% clean_names()
-
-# setdiff(batimento$lista_po %>% unique(), portaria_PO$codigo %>% unique())
-# 
-# setdiff(batimento$lista_fonte %>% unique(), RELFONT$FR %>% unique())
-# 
-# setdiff( RELFONT$FR %>% unique(),batimento$lista_fonte %>% unique())
-# 
-# intersect(batimento$lista_nd_exclusao %>% unique(), portaria_ND$codigo %>% unique())
-# 
-# setdiff(batimento$lista_nr %>% unique(), portaria_NR$nr %>% unique())
-# 
-#  ( portaria_NR$nr  %in% batimento$lista_nr )
-# 
-# 
-# intersect(batimento$lista_nr_exclusao , portaria_ND$codigo )
-
-
-
-```
-
-```{r}
-
-agrupar_tipos <- function(tipo){
-  grupo_2 <- tabelao %>% filter(tipo2.msc == tipo) %>% select(ic2.msc) %>% unique() %>% pull(ic2.msc)
-  grupo_3 <- tabelao %>% filter(tipo3.msc == tipo) %>% select(ic3.msc) %>% unique() %>% pull(ic3.msc)
-  grupo_4 <- tabelao %>% filter(tipo4.msc == tipo) %>% select(ic4.msc) %>% unique() %>% pull(ic4.msc)
-  
-  data.frame(
-    codigo = c(grupo_2, grupo_3, grupo_4),
-    origem = c(rep("ic2", length(grupo_2)),
-               rep("ic3", length(grupo_3)), 
-               rep("ic4", length(grupo_4))),
-    tipo_filtrado = tipo
-  )
-}
-
-
-FT_msc <- agrupar_tipos("FR")
-ND_msc <- agrupar_tipos("ND")
-NR_msc <- agrupar_tipos("NR")
-FS_msc <- agrupar_tipos("FS")
-
-
-
-
-```
-
-```{r}
-verificar_todos_codigos_correto <- function() {
-  
-  tribble(
-    ~tipo, ~dados, ~referencia,
-    "FT", FT_msc, RELFONT$FR,
-    "NR", NR_msc, if(is.data.frame(codigos_nr)) codigos_nr[[1]] else codigos_nr,
-    "ND", ND_msc, if(is.data.frame(codigos_nd)) codigos_nd[[1]] else codigos_nd
-  ) %>%
-  mutate(
-    diagnostico = map2(dados, referencia, ~{
-      codigos <- as.numeric(.x$codigo)
-      ref_vec <- if(is.data.frame(.y)) .y[[1]] else .y
-      
-      encontrados_logico <- codigos %in% ref_vec
-      encontrados_count <- sum(encontrados_logico, na.rm = TRUE)
-      total_count <- length(codigos)
-      
-      tibble(
-        total = total_count,
-        encontrados = encontrados_count,
-        perdidos = total_count - encontrados_count,
-        percentual = round((encontrados_count / total_count) * 100, 1),
-        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
-      )
-    })
-  ) %>%
-  select(-dados, -referencia) %>%
-  unnest(diagnostico)
-}
-
-# Executar versão corrigida
-diagnostico_corrigido <- verificar_todos_codigos_correto()
-diagnostico_corrigido
-```
-
-```{r}
-identificar_codigos_problemáticos <- function() {
-  
-  # Códigos NR que não estão na referência
-  codigos_nr_problema <- NR_msc %>%
-    mutate(codigo_num = as.numeric(codigo)) %>%
-    filter(!codigo_num %in% (if(is.data.frame(codigos_nr)) codigos_nr[[1]] else codigos_nr)) %>%
-    select(codigo, origem, tipo_filtrado) %>%
-    mutate(tipo_problema = "NR - Não encontrado na referência")
-  
-  # Códigos ND que não estão na referência  
-  codigos_nd_problema <- ND_msc %>%
-    mutate(codigo_num = as.numeric(codigo)) %>%
-    filter(!codigo_num %in% (if(is.data.frame(codigos_nd)) codigos_nd[[1]] else codigos_nd)) %>%
-    select(codigo, origem, tipo_filtrado) %>%
-    mutate(tipo_problema = "ND - Não encontrado na referência")
-  
-  # Consolidar problemas
-  bind_rows(codigos_nr_problema, codigos_nd_problema) %>%
-    arrange(tipo_problema, codigo)
-}
-
-# Executar
-codigos_problematicos <- identificar_codigos_problemáticos()
-# codigos_problematicos
-```
-
-```{r}
-identificar_problemas_validacao <- function(df) {
-  
-  df %>%
-    # Identificar registros com problemas em qualquer posição
-    filter(
-      posicao_1 != "ok" | 
-      posicao_2 != "ok" | 
-      posicao_3 != "ok" | 
-      posicao_4 != "ok"
-    ) %>%
-    # Criar resumo dos problemas
-    mutate(
-      problemas = paste(
-        if_else(posicao_1 != "ok", "P1", ""),
-        if_else(posicao_2 != "ok", "P2", ""),
-        if_else(posicao_3 != "ok", "P3", ""),
-        if_else(posicao_4 != "ok", "P4", ""),
-        sep = " "
-      ) %>% str_squish()
-    ) %>%
-    select(conta, ic1.msc, ic2.msc, ic3.msc, ic4.msc, 
-           tipo1.msc, tipo2.msc, tipo3.msc, tipo4.msc,
-           posicao_1, posicao_2, posicao_3, posicao_4, problemas, valor, saldo) %>%
-    arrange(conta)
-}
-
-# Executar (assumindo que seu dataset se chama 'tabelao' ou outro nome)
-contas_problematicas <- identificar_problemas_validacao(tabelao)  # ajuste o nome do dataset
-```
-
-```{r}
-analise_completa_problemas <- function(df) {
-  
-  # Resumo de problemas por posição
-  resumo_posicoes <- df %>%
-    summarise(
-      total_registros = n(),
-      problema_pos1 = sum(posicao_1 != "ok"),
-      problema_pos2 = sum(posicao_2 != "ok"), 
-      problema_pos3 = sum(posicao_3 != "ok"),
-      problema_pos4 = sum(posicao_4 != "ok"),
-      registros_com_problema = sum(
-        posicao_1 != "ok" | posicao_2 != "ok" | 
-        posicao_3 != "ok" | posicao_4 != "ok"
-      )
-    ) %>%
-    mutate(
-      percentual_problema = round((registros_com_problema / total_registros) * 100, 2)
-    )
-  
-  # Problemas por tipo
-  problemas_por_tipo <- df %>%
-    filter(
-      posicao_1 != "ok" | posicao_2 != "ok" | 
-      posicao_3 != "ok" | posicao_4 != "ok"
-    ) %>%
-    count(tipo1.msc, tipo2.msc, tipo3.msc, tipo4.msc, sort = TRUE) %>%
-    head(20)
-  
-  # Contas mais problemáticas
-  contas_mais_problemas <- df %>%
-    filter(
-      posicao_1 != "ok" | posicao_2 != "ok" | 
-      posicao_3 != "ok" | posicao_4 != "ok"
-    ) %>%
-    count(conta, sort = TRUE) %>%
-    head(20)
-  
-  list(
-    resumo_geral = resumo_posicoes,
-    problemas_por_tipo = problemas_por_tipo,
-    contas_mais_problemas = contas_mais_problemas
-  )
-}
-
-# Executar análise completa
-analise_completa <- analise_completa_problemas(tabelao)  # ajuste o nome do dataset
-
-# Ver resultados
-cat("📊 RESUMO GERAL DE PROBLEMAS\n")
-# print(analise_completa$resumo_geral)
-
-cat("\n📋 TIPOS COM MAIS PROBLEMAS\n")
-# print(analise_completa$problemas_por_tipo)
-
-cat("\n🚨 CONTAS COM MAIS PROBLEMAS\n") 
-# print(analise_completa$contas_mais_problemas)
-```
-
-```{r}
-# Ver especificamente quais códigos NR estão faltando
-codigos_nr_faltantes <- NR_msc %>%
-  mutate(codigo_num = as.numeric(codigo)) %>%
-  anti_join(
-    if(is.data.frame(codigos_nr)) codigos_nr else data.frame(codigo = codigos_nr),
-    by = c("codigo_num" = if(is.data.frame(codigos_nr)) names(codigos_nr)[1] else "codigo")
-  ) %>%
-  arrange(codigo_num)
-
-cat("🔍 CÓDIGOS NR FALTANTES:\n")
-# print(codigos_nr_faltantes)
-```
-
-```{r}
-relatorio_validacao <- function() {
-  cat("🚨 RELATÓRIO DE PROBLEMAS DE VALIDAÇÃO\n")
-  cat("="  %>% rep(50) %>% paste(collapse = ""), "\n\n")
-  
-  # Problemas de referência
-  cat("1️⃣ PROBLEMAS DE REFERÊNCIA:\n")
-  cat("   • NR: 61 códigos não encontrados (90.3% ok)\n")
-  cat("   • ND: 1 código não encontrado (99.8% ok)\n")
-  cat("   • FT: 100% ok\n\n")
-  
-  # Problemas de validação estrutural
-  problemas_estruturais <- tabelao %>%
-    summarise(
-      total = n(),
-      com_problema = sum(
-        posicao_1 != "ok" | posicao_2 != "ok" | 
-        posicao_3 != "ok" | posicao_4 != "ok"
-      )
-    ) %>%
-    mutate(percentual = round((com_problema/total)*100, 2))
-  
-  cat("2️⃣ PROBLEMAS ESTRUTURAIS:\n")
-  cat("   • Total de registros:", problemas_estruturais$total, "\n")
-  cat("   • Registros com problema:", problemas_estruturais$com_problema, "\n") 
-  cat("   • Percentual problemático:", problemas_estruturais$percentual, "%\n\n")
-  
-  cat("3️⃣ PRÓXIMOS PASSOS:\n")
-  cat("   • Verificar códigos NR faltantes\n")
-  cat("   • Analisar código ND faltante\n")
-  cat("   • Revisar validações estruturais\n")
-}
-
-# Executar relatório
-relatorio_validacao()
-```
-
-```{r}
-verificar_todos_codigos_REL_SIAFI <- function() {
-  
-  tribble(
-    ~tipo, ~dados, ~referencia,
-    "FT", FT_msc, RELFONT$FR,
-    "NR", NR_msc, RELNR$NR,
-    "ND", ND_msc, RELND$ND,
-    "FS", FS_msc, todas_funcoes$codigo_completo
-  ) %>%
-  mutate(
-    diagnostico = map2(dados, referencia, ~{
-      codigos <- as.numeric(.x$codigo)
-      ref_vec <- if(is.data.frame(.y)) .y[[1]] else .y
-      
-      encontrados_logico <- codigos %in% ref_vec
-      encontrados_count <- sum(encontrados_logico, na.rm = TRUE)
-      total_count <- length(codigos)
-      
-      tibble(
-        total = total_count,
-        encontrados = encontrados_count,
-        perdidos = total_count - encontrados_count,
-        percentual = round((encontrados_count / total_count) * 100, 1),
-        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
-      )
-    })
-  ) %>%
-  select(-dados, -referencia) %>%
-  unnest(diagnostico)
-}
-
-
-diagnostico_siafi <- verificar_todos_codigos_REL_SIAFI()
-diagnostico_siafi
 ```
