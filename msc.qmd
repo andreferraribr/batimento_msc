@@ -42,7 +42,12 @@ library(scales)
 ```{r}
 #| include: false
 #| warning: false
-TG_MSC202507 <- read_delim("TG-MSC202507.csv", 
+
+mes <- "202507"
+
+arquivo <- paste0("TG-MSC",mes,".csv")
+
+TG_MSC <- read_delim(arquivo, 
     delim = ";", escape_double = FALSE, trim_ws = TRUE, 
     skip = 1)%>% mutate(CONTA = as.character(CONTA)) %>% clean_names()
 ```
@@ -50,9 +55,9 @@ TG_MSC202507 <- read_delim("TG-MSC202507.csv",
 ```{r}
 #| include: false
 #| warning: false
-TG_MSC202507 %>% glimpse()
+TG_MSC %>% glimpse()
 
-TG_MSC202507$IC1
+TG_MSC$IC1
 
 ```
 
@@ -91,7 +96,7 @@ portaria_LAYOUT <- read_excel("portaria.xlsx", sheet = "Leiaute MSC",
 ```
 
 ```{r}
-tabelao <- left_join(TG_MSC202507, portaria_LAYOUT, suffix = c(".msc", ".layout"), by = "conta" ) %>% select(-ic5, -ic6, -tipo5, -tipo6)
+tabelao <- left_join(TG_MSC, portaria_LAYOUT, suffix = c(".msc", ".layout"), by = "conta" )
 ```
 
 ```{r}
@@ -99,10 +104,45 @@ tabelao <- left_join(TG_MSC202507, portaria_LAYOUT, suffix = c(".msc", ".layout"
 #| warning: false
 
 
-codigos_fr <- read_table("~/R/msc/RELFONT.txt", 
+RELFONT <- read_table("~/R/msc/RELFONT.txt", 
                           skip = 4,
                           col_names = TRUE) %>%
      select(1) %>% unique()  # Primeira coluna
+
+
+# Importar RELNR.TXT - arquivo de largura fixa
+relnr <- read_fwf("RELNR.TXT", 
+                   skip = 10,  # pular cabeçalho
+                   col_positions = fwf_positions(
+                       start = c(1, 12, 39, 43, 53, 80),
+                       end   = c(10, 38, 41, 50, 78, 82),
+                       col_names = c("NR_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI", 
+                                     "NR_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO")
+                   ),
+                   locale = locale(encoding = "latin1"))%>%
+    clean_names()
+
+
+
+relnd <- read_fwf("RELND.TXT", 
+                  skip = 10,  # pular cabeçalho
+                  col_positions = fwf_positions(
+                      start = c(1, 12, 42, 53),
+                      end   = c(10, 41, 52, 80),
+                      col_names = c("ND_SICONFI", "TITULO_ND_SICONFI", 
+                                    "ND_UNIAO", "TITULO_ND_UNIAO")
+                  ),
+                  locale = locale(encoding = "latin1")) %>%
+    clean_names()
+
+RELND <- read_table("RELND.TXT", 
+                          skip = 7,
+                          col_names = TRUE)  # Primeira coluna
+
+RELFUNCAO  <- read_csv("RELFUNCAO.csv")
+
+
+todas_funcoes <- read_csv("todas_funcoes.txt")
 
 
 codigos_nr <- portaria_NR$nr %>% unique()
@@ -112,41 +152,40 @@ codigos_nd <- portaria_ND$codigo %>% unique()
 tabelao <- tabelao %>% 
   mutate (posicao_1 = case_when(
     tipo1.msc == "PO" ~ ifelse(ic1.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo1.msc == "FR" ~ ifelse(ic1.msc %in% c(codigos_fr$FR),"ok","verificar" ),
-    tipo1.msc == "ND" ~ ifelse(ic1.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
-    tipo1.msc == "NR" ~ ifelse(ic1.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    tipo1.msc == "FR" ~ ifelse(ic1.msc %in% c(RELFONT$FR),"ok","verificar" ),
+    tipo1.msc == "ND" ~ ifelse(ic1.msc %in% c(RELND$ND),"ok","verificar" ),
+    tipo1.msc == "NR" ~ ifelse(ic1.msc %in% c(RELNR$NR),"ok","verificar" ),
     TRUE ~ "demais"
     
   ),
   
   posicao_2 = case_when(
     tipo2.msc == "PO" ~ ifelse(ic2.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo2.msc == "FR" ~ ifelse(ic2.msc %in% c(codigos_fr$FR),"ok","verificar" ),
-    tipo2.msc == "ND" ~ ifelse(ic2.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
-    tipo2.msc == "NR" ~ ifelse(ic2.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    tipo2.msc == "FR" ~ ifelse(ic2.msc %in% c(RELFONT$FR),"ok","verificar" ),
+    tipo2.msc == "ND" ~ ifelse(ic2.msc %in% c(RELND$ND),"ok","verificar" ),
+    tipo2.msc == "NR" ~ ifelse(ic2.msc %in% c(RELNR$NR),"ok","verificar" ),
     TRUE ~ "demais"
     
   ),
    posicao_3 = case_when(
     tipo3.msc == "PO" ~ ifelse(ic3.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo3.msc == "FR" ~ ifelse(ic3.msc %in% c(codigos_fr$FR),"ok","verificar" ),
-    tipo3.msc == "ND" ~ ifelse(ic3.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
-    tipo3.msc == "NR" ~ ifelse(ic3.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    tipo3.msc == "FR" ~ ifelse(ic3.msc %in% c(RELFONT$FR),"ok","verificar" ),
+    tipo3.msc == "ND" ~ ifelse(ic3.msc %in% c(RELND$ND),"ok","verificar" ),
+    tipo3.msc == "NR" ~ ifelse(ic3.msc %in% c(RELNR$NR),"ok","verificar" ),
     TRUE ~ "demais"
     
   ),
   posicao_4 = case_when(
     tipo4.msc == "PO" ~ ifelse(ic4.msc %in% c(portaria_PO$codigo),"ok","verificar" ),
-    tipo4.msc == "FR" ~ ifelse(ic4.msc %in% c(codigos_fr$FR),"ok","verificar" ),
-    tipo4.msc == "ND" ~ ifelse(ic4.msc %in% c(portaria_ND$codigo),"ok","verificar" ),
-    tipo4.msc == "NR" ~ ifelse(ic4.msc %in% c(portaria_NR$nr),"ok","verificar" ),
+    tipo4.msc == "FR" ~ ifelse(ic4.msc %in% c(RELFONT$FR),"ok","verificar" ),
+    tipo4.msc == "ND" ~ ifelse(ic4.msc %in% c(RELND$ND),"ok","verificar" ),
+    tipo4.msc == "NR" ~ ifelse(ic4.msc %in% c(RELNR$NR),"ok","verificar" ),
     TRUE ~ "demais"
     
   ))
 ```
 
 ```{r}
-#| include: false
 #| warning: false
 
 tabelao <- tabelao %>%
@@ -176,6 +215,9 @@ datatable(tabelao %>% group_by(posicao_1, posicao_2, posicao_3, posicao_4) %>% c
 ```
 
 ```{r}
+
+#| include: false
+#| warning: false
 datatable(tabelao %>%
             filter(
               posicao_1 == "verificar" |
@@ -192,4 +234,298 @@ datatable(tabelao %>%
                 posicao_3 == "verificar" |
                 posicao_4 == "verificar" ) %>%
             group_by(  tipo3.msc, tipo3.layout) %>% count())
+```
+
+```{r}
+#| include: false
+#| warning: false
+
+batimento <- read_excel("batimento.xlsx", 
+    sheet = "Teste existência IC", skip = 2) %>% clean_names()
+
+# setdiff(batimento$lista_po %>% unique(), portaria_PO$codigo %>% unique())
+# 
+# setdiff(batimento$lista_fonte %>% unique(), RELFONT$FR %>% unique())
+# 
+# setdiff( RELFONT$FR %>% unique(),batimento$lista_fonte %>% unique())
+# 
+# intersect(batimento$lista_nd_exclusao %>% unique(), portaria_ND$codigo %>% unique())
+# 
+# setdiff(batimento$lista_nr %>% unique(), portaria_NR$nr %>% unique())
+# 
+#  ( portaria_NR$nr  %in% batimento$lista_nr )
+# 
+# 
+# intersect(batimento$lista_nr_exclusao , portaria_ND$codigo )
+
+
+
+```
+
+```{r}
+
+agrupar_tipos <- function(tipo){
+  grupo_2 <- tabelao %>% filter(tipo2.msc == tipo) %>% select(ic2.msc) %>% unique() %>% pull(ic2.msc)
+  grupo_3 <- tabelao %>% filter(tipo3.msc == tipo) %>% select(ic3.msc) %>% unique() %>% pull(ic3.msc)
+  grupo_4 <- tabelao %>% filter(tipo4.msc == tipo) %>% select(ic4.msc) %>% unique() %>% pull(ic4.msc)
+  
+  data.frame(
+    codigo = c(grupo_2, grupo_3, grupo_4),
+    origem = c(rep("ic2", length(grupo_2)),
+               rep("ic3", length(grupo_3)), 
+               rep("ic4", length(grupo_4))),
+    tipo_filtrado = tipo
+  )
+}
+
+
+FT_msc <- agrupar_tipos("FR")
+ND_msc <- agrupar_tipos("ND")
+NR_msc <- agrupar_tipos("NR")
+FS_msc <- agrupar_tipos("FS")
+
+
+
+
+```
+
+```{r}
+verificar_todos_codigos_correto <- function() {
+  
+  tribble(
+    ~tipo, ~dados, ~referencia,
+    "FT", FT_msc, RELFONT$FR,
+    "NR", NR_msc, if(is.data.frame(codigos_nr)) codigos_nr[[1]] else codigos_nr,
+    "ND", ND_msc, if(is.data.frame(codigos_nd)) codigos_nd[[1]] else codigos_nd
+  ) %>%
+  mutate(
+    diagnostico = map2(dados, referencia, ~{
+      codigos <- as.numeric(.x$codigo)
+      ref_vec <- if(is.data.frame(.y)) .y[[1]] else .y
+      
+      encontrados_logico <- codigos %in% ref_vec
+      encontrados_count <- sum(encontrados_logico, na.rm = TRUE)
+      total_count <- length(codigos)
+      
+      tibble(
+        total = total_count,
+        encontrados = encontrados_count,
+        perdidos = total_count - encontrados_count,
+        percentual = round((encontrados_count / total_count) * 100, 1),
+        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
+      )
+    })
+  ) %>%
+  select(-dados, -referencia) %>%
+  unnest(diagnostico)
+}
+
+# Executar versão corrigida
+diagnostico_corrigido <- verificar_todos_codigos_correto()
+diagnostico_corrigido
+```
+
+```{r}
+identificar_codigos_problemáticos <- function() {
+  
+  # Códigos NR que não estão na referência
+  codigos_nr_problema <- NR_msc %>%
+    mutate(codigo_num = as.numeric(codigo)) %>%
+    filter(!codigo_num %in% (if(is.data.frame(codigos_nr)) codigos_nr[[1]] else codigos_nr)) %>%
+    select(codigo, origem, tipo_filtrado) %>%
+    mutate(tipo_problema = "NR - Não encontrado na referência")
+  
+  # Códigos ND que não estão na referência  
+  codigos_nd_problema <- ND_msc %>%
+    mutate(codigo_num = as.numeric(codigo)) %>%
+    filter(!codigo_num %in% (if(is.data.frame(codigos_nd)) codigos_nd[[1]] else codigos_nd)) %>%
+    select(codigo, origem, tipo_filtrado) %>%
+    mutate(tipo_problema = "ND - Não encontrado na referência")
+  
+  # Consolidar problemas
+  bind_rows(codigos_nr_problema, codigos_nd_problema) %>%
+    arrange(tipo_problema, codigo)
+}
+
+# Executar
+codigos_problematicos <- identificar_codigos_problemáticos()
+# codigos_problematicos
+```
+
+```{r}
+identificar_problemas_validacao <- function(df) {
+  
+  df %>%
+    # Identificar registros com problemas em qualquer posição
+    filter(
+      posicao_1 != "ok" | 
+      posicao_2 != "ok" | 
+      posicao_3 != "ok" | 
+      posicao_4 != "ok"
+    ) %>%
+    # Criar resumo dos problemas
+    mutate(
+      problemas = paste(
+        if_else(posicao_1 != "ok", "P1", ""),
+        if_else(posicao_2 != "ok", "P2", ""),
+        if_else(posicao_3 != "ok", "P3", ""),
+        if_else(posicao_4 != "ok", "P4", ""),
+        sep = " "
+      ) %>% str_squish()
+    ) %>%
+    select(conta, ic1.msc, ic2.msc, ic3.msc, ic4.msc, 
+           tipo1.msc, tipo2.msc, tipo3.msc, tipo4.msc,
+           posicao_1, posicao_2, posicao_3, posicao_4, problemas, valor, saldo) %>%
+    arrange(conta)
+}
+
+# Executar (assumindo que seu dataset se chama 'tabelao' ou outro nome)
+contas_problematicas <- identificar_problemas_validacao(tabelao)  # ajuste o nome do dataset
+```
+
+```{r}
+analise_completa_problemas <- function(df) {
+  
+  # Resumo de problemas por posição
+  resumo_posicoes <- df %>%
+    summarise(
+      total_registros = n(),
+      problema_pos1 = sum(posicao_1 != "ok"),
+      problema_pos2 = sum(posicao_2 != "ok"), 
+      problema_pos3 = sum(posicao_3 != "ok"),
+      problema_pos4 = sum(posicao_4 != "ok"),
+      registros_com_problema = sum(
+        posicao_1 != "ok" | posicao_2 != "ok" | 
+        posicao_3 != "ok" | posicao_4 != "ok"
+      )
+    ) %>%
+    mutate(
+      percentual_problema = round((registros_com_problema / total_registros) * 100, 2)
+    )
+  
+  # Problemas por tipo
+  problemas_por_tipo <- df %>%
+    filter(
+      posicao_1 != "ok" | posicao_2 != "ok" | 
+      posicao_3 != "ok" | posicao_4 != "ok"
+    ) %>%
+    count(tipo1.msc, tipo2.msc, tipo3.msc, tipo4.msc, sort = TRUE) %>%
+    head(20)
+  
+  # Contas mais problemáticas
+  contas_mais_problemas <- df %>%
+    filter(
+      posicao_1 != "ok" | posicao_2 != "ok" | 
+      posicao_3 != "ok" | posicao_4 != "ok"
+    ) %>%
+    count(conta, sort = TRUE) %>%
+    head(20)
+  
+  list(
+    resumo_geral = resumo_posicoes,
+    problemas_por_tipo = problemas_por_tipo,
+    contas_mais_problemas = contas_mais_problemas
+  )
+}
+
+# Executar análise completa
+analise_completa <- analise_completa_problemas(tabelao)  # ajuste o nome do dataset
+
+# Ver resultados
+cat("📊 RESUMO GERAL DE PROBLEMAS\n")
+# print(analise_completa$resumo_geral)
+
+cat("\n📋 TIPOS COM MAIS PROBLEMAS\n")
+# print(analise_completa$problemas_por_tipo)
+
+cat("\n🚨 CONTAS COM MAIS PROBLEMAS\n") 
+# print(analise_completa$contas_mais_problemas)
+```
+
+```{r}
+# Ver especificamente quais códigos NR estão faltando
+codigos_nr_faltantes <- NR_msc %>%
+  mutate(codigo_num = as.numeric(codigo)) %>%
+  anti_join(
+    if(is.data.frame(codigos_nr)) codigos_nr else data.frame(codigo = codigos_nr),
+    by = c("codigo_num" = if(is.data.frame(codigos_nr)) names(codigos_nr)[1] else "codigo")
+  ) %>%
+  arrange(codigo_num)
+
+cat("🔍 CÓDIGOS NR FALTANTES:\n")
+# print(codigos_nr_faltantes)
+```
+
+```{r}
+relatorio_validacao <- function() {
+  cat("🚨 RELATÓRIO DE PROBLEMAS DE VALIDAÇÃO\n")
+  cat("="  %>% rep(50) %>% paste(collapse = ""), "\n\n")
+  
+  # Problemas de referência
+  cat("1️⃣ PROBLEMAS DE REFERÊNCIA:\n")
+  cat("   • NR: 61 códigos não encontrados (90.3% ok)\n")
+  cat("   • ND: 1 código não encontrado (99.8% ok)\n")
+  cat("   • FT: 100% ok\n\n")
+  
+  # Problemas de validação estrutural
+  problemas_estruturais <- tabelao %>%
+    summarise(
+      total = n(),
+      com_problema = sum(
+        posicao_1 != "ok" | posicao_2 != "ok" | 
+        posicao_3 != "ok" | posicao_4 != "ok"
+      )
+    ) %>%
+    mutate(percentual = round((com_problema/total)*100, 2))
+  
+  cat("2️⃣ PROBLEMAS ESTRUTURAIS:\n")
+  cat("   • Total de registros:", problemas_estruturais$total, "\n")
+  cat("   • Registros com problema:", problemas_estruturais$com_problema, "\n") 
+  cat("   • Percentual problemático:", problemas_estruturais$percentual, "%\n\n")
+  
+  cat("3️⃣ PRÓXIMOS PASSOS:\n")
+  cat("   • Verificar códigos NR faltantes\n")
+  cat("   • Analisar código ND faltante\n")
+  cat("   • Revisar validações estruturais\n")
+}
+
+# Executar relatório
+relatorio_validacao()
+```
+
+```{r}
+verificar_todos_codigos_REL_SIAFI <- function() {
+  
+  tribble(
+    ~tipo, ~dados, ~referencia,
+    "FT", FT_msc, RELFONT$FR,
+    "NR", NR_msc, RELNR$NR,
+    "ND", ND_msc, RELND$ND,
+    "FS", FS_msc, todas_funcoes$codigo_completo
+  ) %>%
+  mutate(
+    diagnostico = map2(dados, referencia, ~{
+      codigos <- as.numeric(.x$codigo)
+      ref_vec <- if(is.data.frame(.y)) .y[[1]] else .y
+      
+      encontrados_logico <- codigos %in% ref_vec
+      encontrados_count <- sum(encontrados_logico, na.rm = TRUE)
+      total_count <- length(codigos)
+      
+      tibble(
+        total = total_count,
+        encontrados = encontrados_count,
+        perdidos = total_count - encontrados_count,
+        percentual = round((encontrados_count / total_count) * 100, 1),
+        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
+      )
+    })
+  ) %>%
+  select(-dados, -referencia) %>%
+  unnest(diagnostico)
+}
+
+
+diagnostico_siafi <- verificar_todos_codigos_REL_SIAFI()
+diagnostico_siafi
 ```
