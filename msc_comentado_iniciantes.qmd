@@ -1,7 +1,7 @@
 ---
 title: "Validação da Matriz de Saldos Contábeis (MSC)"
 subtitle: "Sistema automatizado para validação de dados fiscais"
-author: "Equipe de Análise Fiscal"
+author: "GEINFl"
 date: today
 execute:
   warning: false
@@ -35,7 +35,7 @@ Este sistema automatiza a validação desses dados, verificando se todos os cód
 A **Matriz de Saldos Contábeis (MSC)** possui uma estrutura hierárquica com **6 posições de identificação**:
 
 | Posição | Tipos Aceitos | Descrição | Exemplo |
-|-----------------|-----------------------|-----------------|-----------------|
+|-----------------|--------------------|-----------------|-----------------|
 | **1** | PO | Programa Orçamentário | 10101 |
 | **2** | FP, FR | Função Programática / Fonte de Recursos | 1000 |
 | **3** | FR, ND, NR | Fonte / Natureza Despesa / Natureza Receita | 33903016 |
@@ -237,6 +237,9 @@ cat("\n- Colunas de identificação:", length(colunas_importantes))
 # AI deve estar entre 2004 e 2024
 anos_ai_validos <- 2004:2024
 
+# Valores válidos para FP (seguindo a mesma lógica do AI)
+valores_fp_validos <- c(1, 2)
+
 # FUNÇÃO CRÍTICA: Preparar códigos válidos (excluir códigos com situacao_siconfi = "E")
 preparar_codigos_validos <- function() {
   
@@ -345,7 +348,7 @@ detectar_tipos_por_posicao <- function(dados) {
   return(tipos_por_posicao)
 }
 
-# FUNÇÃO 3: Aplica validações automaticamente (VERSÃO CORRIGIDA)
+# FUNÇÃO 3: Aplica validações automaticamente 
 executar_validacao_automatica <- function(dados) {
   cat("INICIANDO VALIDAÇÃO AUTOMÁTICA (com filtro de códigos excluídos)\n")
   cat("==================================================================\n\n")
@@ -364,7 +367,7 @@ executar_validacao_automatica <- function(dados) {
       
       # POSIÇÃO 2: FP (sempre OK) ou FR (validar com códigos filtrados)
       posicao_2 = case_when(
-        tipo2.msc == "FP" ~ "ok",
+        tipo2.msc == "FP" ~ ifelse(ic2.msc %in% valores_fp_validos, "ok", "verificar"),
         tipo2.msc == "FR" ~ ifelse(ic2.msc %in% codigos_validos$fr_validos, "ok", "verificar"),
         TRUE ~ "demais"
       ),
@@ -414,7 +417,8 @@ verificar_todos_codigos_correto <- function() {
     "NR", NR_msc, codigos_validos$nr_validos,
     "ND", ND_msc, codigos_validos$nd_validos,
     "CO", CO_msc, codigos_validos$co_validos,
-    "AI", AI_msc, anos_ai_validos
+    "AI", AI_msc, anos_ai_validos,
+    "FP", FP_msc, valores_fp_validos
   ) %>%
   mutate(
     # Para cada linha, compara dados com referência
@@ -478,6 +482,7 @@ ND_msc <- agrupar_tipos("ND")   # Natureza de Despesa
 NR_msc <- agrupar_tipos("NR")   # Natureza de Receita
 CO_msc <- agrupar_tipos("CO")   # Complementos
 AI_msc <- agrupar_tipos("AI")   # Ano de Inclusão
+FP_msc <- agrupar_tipos("FP")   # Financeiro / Patrimonial
 
 cat("Grupos de códigos criados:")
 cat("\n- FR (Fonte Recursos):", nrow(FT_msc), "códigos únicos")
@@ -485,6 +490,7 @@ cat("\n- ND (Natureza Despesa):", nrow(ND_msc), "códigos únicos")
 cat("\n- NR (Natureza Receita):", nrow(NR_msc), "códigos únicos")
 cat("\n- CO (Complementos):", nrow(CO_msc), "códigos únicos")
 cat("\n- AI (Ano Inclusão):", nrow(AI_msc), "códigos únicos")
+cat("\n- FP (Financeiro / Patrimonial):", nrow(FP_msc), "códigos únicos")
 ```
 
 # Resultados da Validação
@@ -612,6 +618,320 @@ datatable(analise_estrutura,
           rownames = FALSE)
 ```
 
+# Batimento dos Saldo
+
+```{r}
+# =============================================================================
+# BATIMENTO DE SALDOS - MSC DATA VALIDATION PROJECT
+# Validação e Conciliação para Relatórios Fiscais (RREO/RGF)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. APLICAÇÃO DE REGRAS CONTÁBEIS E CÁLCULO DE SALDOS
+# -----------------------------------------------------------------------------
+
+# Aplicar regras de inversão de saldo conforme natureza contábil
+# Regra de negócio: Inversão de sinal conforme classe da conta e natureza
+tabelao <- tabelao %>%
+  mutate(
+    saldo = case_when(
+      # Contas de classes ímpares (1,3,5,7) com natureza 'C' - inverte sinal
+      substr(conta, 1, 1) %in% c("1", "3", "5", "7") & natureza_valor == "C" ~ -valor,
+      
+      # Contas de classes pares (2,4,6,8) com natureza 'D' - inverte sinal  
+      substr(conta, 1, 1) %in% c("2", "4", "6", "8") & natureza_valor == "D" ~ -valor,
+      
+      # Demais casos - mantém valor original
+      TRUE ~ valor
+    )
+  ) %>%
+  # Extrair classe contábil do primeiro dígito da conta
+  mutate(classe = str_sub(conta, start = 1L, end = 1L))
+
+```
+
+```{r}
+# -----------------------------------------------------------------------------
+# 2. CONSOLIDAÇÃO DE SALDOS POR CLASSE (FONTE MSC)
+# -----------------------------------------------------------------------------
+
+# Agregar saldos por classe e tipo de valor para análise
+saldos_resumo_msc <- tabelao %>% 
+  group_by(classe, tipo_valor) %>% 
+  summarise(saldo = sum(saldo, na.rm = TRUE), .groups = 'drop') %>%
+  pivot_wider(names_from = tipo_valor, values_from = saldo) %>%
+  mutate(resultado = beginning_balance + period_change - ending_balance)
+
+# Exibir tabela de saldos consolidados MSC
+cat("=== SALDOS CONSOLIDADOS MSC POR CLASSE ===\n")
+datatable(saldos_resumo_msc, 
+          options = list(scrollX = TRUE, pageLength = 8),
+          colnames = c("Classe", "Saldo Inicial", "Movimentação", "Saldo Final", "Resultado")) %>%
+  formatRound(c("beginning_balance", "period_change", "ending_balance", "resultado"), 
+             digits = 2, mark = ".", dec.mark = ",")
+
+# Armazenar saldos finais para comparação
+saldos_msc <- saldos_resumo_msc
+```
+
+```{r}
+# -----------------------------------------------------------------------------
+# 3. CARREGAMENTO DE DADOS DE REFERÊNCIA
+# -----------------------------------------------------------------------------
+
+# Carregar balancete SIAFI para comparação
+balancete_siafi <- read_excel("balancete_siafi.xlsx", range = "A1:D9") %>% 
+  clean_names() %>%
+  mutate(classe = str_sub(conta, 1L, 1L))
+
+# Carregar balancete TG MSC para validação cruzada
+balancete_tg_msc <- read_excel("balancete_tg_msc.xlsx") %>% 
+  clean_names() %>% 
+  rename(classe = 1) %>% 
+  filter(mes_lancamento == mes) %>% 
+  select(-mes_lancamento)
+
+cat("=== FONTES DE DADOS CARREGADAS ===\n")
+cat("- Balancete SIAFI:", nrow(balancete_siafi), "registros\n")
+cat("- Balancete TG MSC:", nrow(balancete_tg_msc), "registros\n")
+cat("- Saldos MSC consolidados:", nrow(saldos_msc), "classes\n\n")
+```
+
+```{r}
+# -----------------------------------------------------------------------------
+# 4. ANÁLISE COMPARATIVA DE CONCILIAÇÃO
+# -----------------------------------------------------------------------------
+
+# Criar matriz de comparação entre as três fontes
+comparacao_saldos <- data.frame(
+  classe = 1:8,
+  saldo_msc = saldos_msc$ending_balance,
+  saldo_siafi = balancete_siafi$saldo_atual,
+  saldo_tg_msc = balancete_tg_msc$saldo_r_conta_contabil
+) %>%
+  mutate(
+    # Calcular diferenças entre fontes
+    diff_msc_siafi = saldo_msc - saldo_siafi,
+    diff_msc_tg = saldo_msc - saldo_tg_msc,
+    diff_siafi_tg = saldo_siafi - saldo_tg_msc,
+    
+    # Validar tolerância de conciliação (< R$ 20,00)
+    diff_msc_siafi_ok = abs(diff_msc_siafi) < 20,
+    diff_msc_tg_ok = abs(diff_msc_tg) < 20,
+    diff_siafi_tg_ok = abs(diff_siafi_tg) < 20,
+    
+    # Status geral de conciliação
+    conciliacao_ok = diff_msc_siafi_ok & diff_msc_tg_ok & diff_siafi_tg_ok
+  )
+
+```
+
+```{r}
+# -----------------------------------------------------------------------------
+# 5. RELATÓRIO DE RESULTADOS DA CONCILIAÇÃO
+# -----------------------------------------------------------------------------
+
+cat("=== RESUMO EXECUTIVO DA CONCILIAÇÃO ===\n")
+cat("Classes aprovadas na conciliação:", sum(comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
+cat("Classes com divergências:", sum(!comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
+cat("Taxa de aprovação:", round(mean(comparacao_saldos$conciliacao_ok) * 100, 1), "%\n\n")
+
+# Identificar e reportar classes problemáticas
+classes_problemas <- comparacao_saldos[!comparacao_saldos$conciliacao_ok, ]
+if(nrow(classes_problemas) > 0) {
+  cat("=== CLASSES COM DIVERGÊNCIAS SUPERIORES A R$ 20,00 ===\n")
+  print(classes_problemas[, c("classe", "diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg")])
+  cat("\n")
+}
+
+# Estatísticas de qualidade das diferenças
+cat("=== MÉTRICAS DE QUALIDADE DOS DADOS ===\n")
+cat("Diferenças MSC vs SIAFI:\n")
+cat("  Máxima: R$", formatC(max(abs(comparacao_saldos$diff_msc_siafi)), format = "f", digits = 2, big.mark = "."), "\n")
+cat("  Média: R$", formatC(mean(abs(comparacao_saldos$diff_msc_siafi)), format = "f", digits = 2, big.mark = "."), "\n")
+
+cat("Diferenças MSC vs TG_MSC:\n")
+cat("  Máxima: R$", formatC(max(abs(comparacao_saldos$diff_msc_tg)), format = "f", digits = 2, big.mark = "."), "\n")
+cat("  Média: R$", formatC(mean(abs(comparacao_saldos$diff_msc_tg)), format = "f", digits = 2, big.mark = "."), "\n")
+
+cat("Diferenças SIAFI vs TG_MSC:\n")
+cat("  Máxima: R$", formatC(max(abs(comparacao_saldos$diff_siafi_tg)), format = "f", digits = 2, big.mark = "."), "\n")
+cat("  Média: R$", formatC(mean(abs(comparacao_saldos$diff_siafi_tg)), format = "f", digits = 2, big.mark = "."), "\n\n")
+
+# -----------------------------------------------------------------------------
+# 6. DASHBOARD INTERATIVO DE RESULTADOS
+# -----------------------------------------------------------------------------
+
+# Exibir tabela interativa com formatação adequada
+cat("=== DASHBOARD DE CONCILIAÇÃO POR CLASSE ===\n")
+datatable(comparacao_saldos, 
+          rownames = FALSE,
+          options = list(
+            scrollX = TRUE, 
+            pageLength = 8,
+            columnDefs = list(
+              list(className = 'dt-center', targets = 0),
+              list(className = 'dt-right', targets = 1:6)
+            )
+          ),
+          colnames = c("Classe", "Saldo MSC", "Saldo SIAFI", "Saldo TG MSC",
+                      "Diff MSC-SIAFI", "Diff MSC-TG", "Diff SIAFI-TG",
+                      "MSC-SIAFI ✓", "MSC-TG ✓", "SIAFI-TG ✓", "Status Geral")) %>%
+  formatRound(columns = c("saldo_msc", "saldo_siafi", "saldo_tg_msc", 
+                         "diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg"), 
+             digits = 2, mark = ".", dec.mark = ",") %>%
+  formatStyle(columns = c("diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg"),
+              backgroundColor = styleInterval(c(-20, 20), c("#ffcccc", "#ccffcc", "#ffcccc"))) %>%
+  formatStyle("conciliacao_ok",
+              backgroundColor = styleEqual(c(TRUE, FALSE), c("#d4edda", "#f8d7da")))
+
+# -----------------------------------------------------------------------------
+# 7. VALIDAÇÕES FINAIS E ALERTAS
+# -----------------------------------------------------------------------------
+
+# Alertas de qualidade dos dados
+if(any(is.na(comparacao_saldos$saldo_msc))) {
+  warning("⚠️  Valores ausentes detectados nos saldos MSC")
+}
+
+if(any(is.na(comparacao_saldos$saldo_siafi))) {
+  warning("⚠️  Valores ausentes detectados nos saldos SIAFI")
+}
+
+if(any(is.na(comparacao_saldos$saldo_tg_msc))) {
+  warning("⚠️  Valores ausentes detectados nos saldos TG MSC")
+}
+
+if(sum(!comparacao_saldos$conciliacao_ok) > 2) {
+  warning("🚨 ATENÇÃO: Mais de 2 classes com divergências significativas. Revisar dados de origem.")
+}
+
+cat("=== PROCESSO DE CONCILIAÇÃO FINALIZADO ===\n")
+cat("Data/Hora:", format(Sys.time(), "%d/%m/%Y %H:%M:%S"), "\n")
+cat("Status: CONCLUÍDO COM", ifelse(sum(!comparacao_saldos$conciliacao_ok) == 0, "SUCESSO", "RESSALVAS"), "\n")
+```
+
+```{r}
+#| warning: false
+
+tabelao <- tabelao %>%
+  mutate(
+    saldo = case_when(
+      # Se conta começar com 1, 3, 5, 7 e natureza_valor = 'C', então inverte o sinal
+      substr(conta, 1, 1) %in% c("1", "3", "5", "7") & natureza_valor == "C" ~ -valor,
+      
+      # Se conta começar com 2, 4, 6, 8 e natureza_valor = 'D', então inverte o sinal  
+      substr(conta, 1, 1) %in% c("2", "4", "6", "8") & natureza_valor == "D" ~ -valor,
+      
+      # Em todos os outros casos, mantém o valor original
+      TRUE ~ valor
+    )
+  )
+
+tabelao <- tabelao %>% mutate(
+  classe = str_sub(conta, start = 1L, end = 1L)
+)
+
+
+datatable(tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)  )%>% formatRound(c("beginning_balance","period_change", "ending_balance", "resultado"), 2, mark = ".", dec.mark = "," )
+
+saldos_msc <- tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)  
+
+```
+
+```{r}
+
+saldos_msc <- tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)
+
+
+balancete_siafi <-  read_excel("balancete_siafi.xlsx", 
+    range = "A1:D9") %>% clean_names()
+
+balancete_siafi <- balancete_siafi %>% mutate(classe = str_sub(conta, 1L, 1L))
+
+
+
+
+balancete_tg_msc <- read_excel("balancete_tg_msc.xlsx") %>% clean_names() %>% rename(classe = 1) %>% filter(mes_lancamento == mes) %>% select(-mes_lancamento)
+
+
+
+
+
+
+
+
+
+
+```
+
+```{r}
+# Criar dataframe comparativo dos saldos por classe
+comparacao_saldos <- data.frame(
+  classe = 1:8,
+  saldo_msc = saldos_msc$ending_balance,
+  saldo_siafi = balancete_siafi$saldo_atual,
+  saldo_tg_msc = balancete_tg_msc$saldo_r_conta_contabil
+)
+
+# Calcular diferenças entre os saldos
+comparacao_saldos <- comparacao_saldos %>%
+  mutate(
+    # Diferença entre saldo_msc e saldo_siafi
+    diff_msc_siafi = saldo_msc - saldo_siafi,
+    # Diferença entre saldo_msc e saldo_tg_msc
+    diff_msc_tg = saldo_msc - saldo_tg_msc,
+    # Diferença entre saldo_siafi e saldo_tg_msc
+    diff_siafi_tg = saldo_siafi - saldo_tg_msc,
+    
+    # Verificar se as diferenças são inferiores a R$ 20,00
+    diff_msc_siafi_ok = abs(diff_msc_siafi) < 20,
+    diff_msc_tg_ok = abs(diff_msc_tg) < 20,
+    diff_siafi_tg_ok = abs(diff_siafi_tg) < 20,
+    
+    # Status geral da conciliação por classe
+    conciliacao_ok = diff_msc_siafi_ok & diff_msc_tg_ok & diff_siafi_tg_ok
+  )
+
+# Exibir o dataframe comparativo
+print("=== COMPARAÇÃO DE SALDOS POR CLASSE ===")
+print(comparacao_saldos)
+
+# Resumo da conciliação
+cat("\n=== RESUMO DA CONCILIAÇÃO ===\n")
+cat("Classes com conciliação OK:", sum(comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
+cat("Classes com divergências:", sum(!comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
+
+# Identificar classes com problemas
+classes_problemas <- comparacao_saldos[!comparacao_saldos$conciliacao_ok, ]
+if(nrow(classes_problemas) > 0) {
+  cat("\n=== CLASSES COM DIVERGÊNCIAS ===\n")
+  print(classes_problemas[, c("classe", "diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg")])
+}
+
+# Estatísticas das diferenças
+cat("\n=== ESTATÍSTICAS DAS DIFERENÇAS ===\n")
+cat("Diferença MSC vs SIAFI:\n")
+cat("  Máxima:", max(abs(comparacao_saldos$diff_msc_siafi)), "\n")
+cat("  Média:", mean(abs(comparacao_saldos$diff_msc_siafi)), "\n")
+
+cat("\nDiferença MSC vs TG_MSC:\n")
+cat("  Máxima:", max(abs(comparacao_saldos$diff_msc_tg)), "\n")
+cat("  Média:", mean(abs(comparacao_saldos$diff_msc_tg)), "\n")
+
+cat("\nDiferença SIAFI vs TG_MSC:\n")
+cat("  Máxima:", max(abs(comparacao_saldos$diff_siafi_tg)), "\n")
+cat("  Média:", mean(abs(comparacao_saldos$diff_siafi_tg)), "\n")
+
+
+datatable(comparacao_saldos) %>% 
+  formatRound(columns = c("saldo_msc", "saldo_siafi", "saldo_tg_msc", 
+                         "diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg"), 
+             digits = 2, mark = ".", dec.mark = ",")
+
+
+```
+
 # Conclusões e Próximos Passos
 
 ## Resumo dos Resultados
@@ -636,3 +956,7 @@ Com base na análise realizada:
 ------------------------------------------------------------------------
 
 *Relatório gerado automaticamente em `r format(Sys.time(), '%d/%m/%Y às %H:%M')`*
+
+```{r}
+View(balancete_siafi)
+```
