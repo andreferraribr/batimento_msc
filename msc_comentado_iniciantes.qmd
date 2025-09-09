@@ -1,7 +1,7 @@
 ---
 title: "Validação da Matriz de Saldos Contábeis (MSC)"
 subtitle: "Sistema automatizado para validação de dados fiscais"
-author: "GEINFl"
+author: "GEINF"
 date: today
 execute:
   warning: false
@@ -82,7 +82,7 @@ library(kableExtra) # Formatação de tabelas
 library(scales)     # Formatação de números
 library(glue)       # Formatação de texto
 
-cat("Bibliotecas carregadas com sucesso!")
+
 ```
 
 ## Definição de Parâmetros
@@ -118,9 +118,9 @@ TG_MSC <- read_delim(arquivo_msc,
   clean_names()
 
 # Mostra informações básicas sobre os dados carregados
-cat("Total de registros carregados:", nrow(TG_MSC))
-cat("\nColunas do arquivo:")
-names(TG_MSC)
+# cat("Total de registros carregados:", nrow(TG_MSC))
+# cat("\nColunas do arquivo:")
+# names(TG_MSC)
 ```
 
 ## Dados das Portarias (Regras de Validação)
@@ -163,10 +163,10 @@ cat("\n- Layouts MSC:", nrow(portaria_LAYOUT))
 relnr <- read_fwf("RELNR.TXT", 
                   skip = 10,  # pula linhas de cabeçalho
                   col_positions = fwf_positions(
-                      start = c(1, 12, 39, 43, 53, 80),    # posição inicial de cada coluna
+                      start = c(1, 12, 39, 42, 53, 80),    # posição inicial de cada coluna
                       end   = c(10, 38, 41, 50, 78, 82),   # posição final de cada coluna
-                      col_names = c("NR_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI", 
-                                    "NR_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO")
+                      col_names = c("NR_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO",
+                                    "NR_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI")
                   ),
                   locale = locale(encoding = "latin1")) %>%  # codificação de caracteres
   clean_names()
@@ -175,10 +175,10 @@ relnr <- read_fwf("RELNR.TXT",
 relnd <- read_fwf("RELND.TXT", 
                   skip = 10,  # pula linhas de cabeçalho
                   col_positions = fwf_positions(
-                      start = c(1, 12, 39, 43, 53, 80),    # posição inicial de cada coluna
+                      start = c(1, 12, 39, 42, 53, 80),    # posição inicial de cada coluna
                       end   = c(10, 38, 41, 50, 78, 82),   # posição final de cada coluna
-                      col_names = c("ND_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI", 
-                                    "ND_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO")
+                      col_names = c("ND_UNIAO", "TITULO_UNIAO", "SITUACAO_UNIAO",
+                                    "ND_SICONFI", "TITULO_SICONFI", "SITUACAO_SICONFI")
                   ),
                   locale = locale(encoding = "latin1")) %>%
   clean_names()
@@ -189,8 +189,8 @@ relfont <- read_fwf("RELFONT.TXT",
                     col_positions = fwf_positions(
                         start = c(1, 9, 61, 66),
                         end   = c(8, 58, 65, 68),
-                        col_names = c("FR_SICONFI", "TITULO_FR_SICONFI", 
-                                      "FR_UNIAO", "SIT")
+                        col_names = c("FR_UNIAO", "TITULO_FR_SICONFI", 
+                                      "FR_SICONFI", "SIT")
                     ),
                     locale = locale(encoding = "latin1")) %>%
   clean_names()
@@ -339,9 +339,9 @@ detectar_tipos_por_posicao <- function(dados) {
       tipos_por_posicao[[paste0("pos_", i)]] <- tipos_unicos
       
       # Mostra a contagem
-      cat(paste0("POSIÇÃO ", i, ":\n"))
-      print(table(dados[[col_name]], useNA = "ifany"))
-      cat("\n")
+     # cat(paste0("POSIÇÃO ", i, ":\n"))
+      #print(table(dados[[col_name]], useNA = "ifany"))
+      #cat("\n")
     }
   }
   
@@ -400,7 +400,7 @@ executar_validacao_automatica <- function(dados) {
       )
     )
   
-  cat("Validação automática concluída (códigos excluídos filtrados)!\n\n")
+  # cat("Validação automática concluída (códigos excluídos filtrados)!\n\n")
   
   return(list(
     dados_validados = dados_validados,
@@ -484,13 +484,13 @@ CO_msc <- agrupar_tipos("CO")   # Complementos
 AI_msc <- agrupar_tipos("AI")   # Ano de Inclusão
 FP_msc <- agrupar_tipos("FP")   # Financeiro / Patrimonial
 
-cat("Grupos de códigos criados:")
-cat("\n- FR (Fonte Recursos):", nrow(FT_msc), "códigos únicos")
-cat("\n- ND (Natureza Despesa):", nrow(ND_msc), "códigos únicos")
-cat("\n- NR (Natureza Receita):", nrow(NR_msc), "códigos únicos")
-cat("\n- CO (Complementos):", nrow(CO_msc), "códigos únicos")
-cat("\n- AI (Ano Inclusão):", nrow(AI_msc), "códigos únicos")
-cat("\n- FP (Financeiro / Patrimonial):", nrow(FP_msc), "códigos únicos")
+# cat("Grupos de códigos criados:")
+# cat("\n- FR (Fonte Recursos):", nrow(FT_msc), "códigos únicos")
+# cat("\n- ND (Natureza Despesa):", nrow(ND_msc), "códigos únicos")
+# cat("\n- NR (Natureza Receita):", nrow(NR_msc), "códigos únicos")
+# cat("\n- CO (Complementos):", nrow(CO_msc), "códigos únicos")
+# cat("\n- AI (Ano Inclusão):", nrow(AI_msc), "códigos únicos")
+# cat("\n- FP (Financeiro / Patrimonial):", nrow(FP_msc), "códigos únicos")
 ```
 
 # Resultados da Validação
@@ -536,6 +536,7 @@ resumo_problemas <- tabelao_validado %>%
   )
 
 datatable(resumo_problemas,
+          rownames = FALSE,
           caption = "Problemas Identificados por Posição",
           options = list(
             pageLength = 6,
@@ -581,7 +582,7 @@ datatable(status_sistema,
   formatStyle("Status", textAlign = "center")
 ```
 
-# Análise Detalhada (Para Especialistas)
+# Análise Detalhada
 
 ## Distribuição dos Tipos por Posição
 
@@ -620,7 +621,9 @@ datatable(analise_estrutura,
 
 # Batimento dos Saldo
 
-```{r}
+## Saldos credores e devedores
+
+```{r msc_credor_devedor}
 # =============================================================================
 # BATIMENTO DE SALDOS - MSC DATA VALIDATION PROJECT
 # Validação e Conciliação para Relatórios Fiscais (RREO/RGF)
@@ -650,13 +653,15 @@ tabelao <- tabelao %>%
 
 ```
 
-```{r}
+## Batimento dos saldos da MSC
+
+```{r saldos_msc}
 # -----------------------------------------------------------------------------
 # 2. CONSOLIDAÇÃO DE SALDOS POR CLASSE (FONTE MSC)
 # -----------------------------------------------------------------------------
 
 # Agregar saldos por classe e tipo de valor para análise
-saldos_resumo_msc <- tabelao %>% 
+saldos_msc <- tabelao %>% 
   group_by(classe, tipo_valor) %>% 
   summarise(saldo = sum(saldo, na.rm = TRUE), .groups = 'drop') %>%
   pivot_wider(names_from = tipo_valor, values_from = saldo) %>%
@@ -664,17 +669,19 @@ saldos_resumo_msc <- tabelao %>%
 
 # Exibir tabela de saldos consolidados MSC
 cat("=== SALDOS CONSOLIDADOS MSC POR CLASSE ===\n")
-datatable(saldos_resumo_msc, 
+datatable(saldos_msc, 
+          rownames = FALSE,
           options = list(scrollX = TRUE, pageLength = 8),
           colnames = c("Classe", "Saldo Inicial", "Movimentação", "Saldo Final", "Resultado")) %>%
   formatRound(c("beginning_balance", "period_change", "ending_balance", "resultado"), 
              digits = 2, mark = ".", dec.mark = ",")
 
-# Armazenar saldos finais para comparação
-saldos_msc <- saldos_resumo_msc
+
 ```
 
-```{r}
+## Dados do SIAFI e Tesouro Gerencial
+
+```{r saldos_siafi_TG}
 # -----------------------------------------------------------------------------
 # 3. CARREGAMENTO DE DADOS DE REFERÊNCIA
 # -----------------------------------------------------------------------------
@@ -691,13 +698,12 @@ balancete_tg_msc <- read_excel("balancete_tg_msc.xlsx") %>%
   filter(mes_lancamento == mes) %>% 
   select(-mes_lancamento)
 
-cat("=== FONTES DE DADOS CARREGADAS ===\n")
-cat("- Balancete SIAFI:", nrow(balancete_siafi), "registros\n")
-cat("- Balancete TG MSC:", nrow(balancete_tg_msc), "registros\n")
-cat("- Saldos MSC consolidados:", nrow(saldos_msc), "classes\n\n")
+
 ```
 
-```{r}
+## Conciliação entre MSC, Siafi e Tesouro Gerencial
+
+```{r conciliacao_saldos_msc_siafi_tg}
 # -----------------------------------------------------------------------------
 # 4. ANÁLISE COMPARATIVA DE CONCILIAÇÃO
 # -----------------------------------------------------------------------------
@@ -722,19 +728,15 @@ comparacao_saldos <- data.frame(
     
     # Status geral de conciliação
     conciliacao_ok = diff_msc_siafi_ok & diff_msc_tg_ok & diff_siafi_tg_ok
+    
   )
 
-```
 
-```{r}
 # -----------------------------------------------------------------------------
 # 5. RELATÓRIO DE RESULTADOS DA CONCILIAÇÃO
 # -----------------------------------------------------------------------------
 
-cat("=== RESUMO EXECUTIVO DA CONCILIAÇÃO ===\n")
-cat("Classes aprovadas na conciliação:", sum(comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
-cat("Classes com divergências:", sum(!comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
-cat("Taxa de aprovação:", round(mean(comparacao_saldos$conciliacao_ok) * 100, 1), "%\n\n")
+
 
 # Identificar e reportar classes problemáticas
 classes_problemas <- comparacao_saldos[!comparacao_saldos$conciliacao_ok, ]
@@ -744,19 +746,7 @@ if(nrow(classes_problemas) > 0) {
   cat("\n")
 }
 
-# Estatísticas de qualidade das diferenças
-cat("=== MÉTRICAS DE QUALIDADE DOS DADOS ===\n")
-cat("Diferenças MSC vs SIAFI:\n")
-cat("  Máxima: R$", formatC(max(abs(comparacao_saldos$diff_msc_siafi)), format = "f", digits = 2, big.mark = "."), "\n")
-cat("  Média: R$", formatC(mean(abs(comparacao_saldos$diff_msc_siafi)), format = "f", digits = 2, big.mark = "."), "\n")
 
-cat("Diferenças MSC vs TG_MSC:\n")
-cat("  Máxima: R$", formatC(max(abs(comparacao_saldos$diff_msc_tg)), format = "f", digits = 2, big.mark = "."), "\n")
-cat("  Média: R$", formatC(mean(abs(comparacao_saldos$diff_msc_tg)), format = "f", digits = 2, big.mark = "."), "\n")
-
-cat("Diferenças SIAFI vs TG_MSC:\n")
-cat("  Máxima: R$", formatC(max(abs(comparacao_saldos$diff_siafi_tg)), format = "f", digits = 2, big.mark = "."), "\n")
-cat("  Média: R$", formatC(mean(abs(comparacao_saldos$diff_siafi_tg)), format = "f", digits = 2, big.mark = "."), "\n\n")
 
 # -----------------------------------------------------------------------------
 # 6. DASHBOARD INTERATIVO DE RESULTADOS
@@ -809,127 +799,10 @@ if(sum(!comparacao_saldos$conciliacao_ok) > 2) {
 cat("=== PROCESSO DE CONCILIAÇÃO FINALIZADO ===\n")
 cat("Data/Hora:", format(Sys.time(), "%d/%m/%Y %H:%M:%S"), "\n")
 cat("Status: CONCLUÍDO COM", ifelse(sum(!comparacao_saldos$conciliacao_ok) == 0, "SUCESSO", "RESSALVAS"), "\n")
-```
-
-```{r}
-#| warning: false
-
-tabelao <- tabelao %>%
-  mutate(
-    saldo = case_when(
-      # Se conta começar com 1, 3, 5, 7 e natureza_valor = 'C', então inverte o sinal
-      substr(conta, 1, 1) %in% c("1", "3", "5", "7") & natureza_valor == "C" ~ -valor,
-      
-      # Se conta começar com 2, 4, 6, 8 e natureza_valor = 'D', então inverte o sinal  
-      substr(conta, 1, 1) %in% c("2", "4", "6", "8") & natureza_valor == "D" ~ -valor,
-      
-      # Em todos os outros casos, mantém o valor original
-      TRUE ~ valor
-    )
-  )
-
-tabelao <- tabelao %>% mutate(
-  classe = str_sub(conta, start = 1L, end = 1L)
-)
-
-
-datatable(tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)  )%>% formatRound(c("beginning_balance","period_change", "ending_balance", "resultado"), 2, mark = ".", dec.mark = "," )
-
-saldos_msc <- tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)  
 
 ```
 
-```{r}
-
-saldos_msc <- tabelao %>% group_by(classe, tipo_valor)%>% summarise(saldo = sum(saldo, na.rm = TRUE)) %>% pivot_wider(names_from = tipo_valor, values_from = saldo)%>% mutate(resultado = beginning_balance + period_change - ending_balance)
-
-
-balancete_siafi <-  read_excel("balancete_siafi.xlsx", 
-    range = "A1:D9") %>% clean_names()
-
-balancete_siafi <- balancete_siafi %>% mutate(classe = str_sub(conta, 1L, 1L))
-
-
-
-
-balancete_tg_msc <- read_excel("balancete_tg_msc.xlsx") %>% clean_names() %>% rename(classe = 1) %>% filter(mes_lancamento == mes) %>% select(-mes_lancamento)
-
-
-
-
-
-
-
-
-
-
-```
-
-```{r}
-# Criar dataframe comparativo dos saldos por classe
-comparacao_saldos <- data.frame(
-  classe = 1:8,
-  saldo_msc = saldos_msc$ending_balance,
-  saldo_siafi = balancete_siafi$saldo_atual,
-  saldo_tg_msc = balancete_tg_msc$saldo_r_conta_contabil
-)
-
-# Calcular diferenças entre os saldos
-comparacao_saldos <- comparacao_saldos %>%
-  mutate(
-    # Diferença entre saldo_msc e saldo_siafi
-    diff_msc_siafi = saldo_msc - saldo_siafi,
-    # Diferença entre saldo_msc e saldo_tg_msc
-    diff_msc_tg = saldo_msc - saldo_tg_msc,
-    # Diferença entre saldo_siafi e saldo_tg_msc
-    diff_siafi_tg = saldo_siafi - saldo_tg_msc,
-    
-    # Verificar se as diferenças são inferiores a R$ 20,00
-    diff_msc_siafi_ok = abs(diff_msc_siafi) < 20,
-    diff_msc_tg_ok = abs(diff_msc_tg) < 20,
-    diff_siafi_tg_ok = abs(diff_siafi_tg) < 20,
-    
-    # Status geral da conciliação por classe
-    conciliacao_ok = diff_msc_siafi_ok & diff_msc_tg_ok & diff_siafi_tg_ok
-  )
-
-# Exibir o dataframe comparativo
-print("=== COMPARAÇÃO DE SALDOS POR CLASSE ===")
-print(comparacao_saldos)
-
-# Resumo da conciliação
-cat("\n=== RESUMO DA CONCILIAÇÃO ===\n")
-cat("Classes com conciliação OK:", sum(comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
-cat("Classes com divergências:", sum(!comparacao_saldos$conciliacao_ok), "de", nrow(comparacao_saldos), "\n")
-
-# Identificar classes com problemas
-classes_problemas <- comparacao_saldos[!comparacao_saldos$conciliacao_ok, ]
-if(nrow(classes_problemas) > 0) {
-  cat("\n=== CLASSES COM DIVERGÊNCIAS ===\n")
-  print(classes_problemas[, c("classe", "diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg")])
-}
-
-# Estatísticas das diferenças
-cat("\n=== ESTATÍSTICAS DAS DIFERENÇAS ===\n")
-cat("Diferença MSC vs SIAFI:\n")
-cat("  Máxima:", max(abs(comparacao_saldos$diff_msc_siafi)), "\n")
-cat("  Média:", mean(abs(comparacao_saldos$diff_msc_siafi)), "\n")
-
-cat("\nDiferença MSC vs TG_MSC:\n")
-cat("  Máxima:", max(abs(comparacao_saldos$diff_msc_tg)), "\n")
-cat("  Média:", mean(abs(comparacao_saldos$diff_msc_tg)), "\n")
-
-cat("\nDiferença SIAFI vs TG_MSC:\n")
-cat("  Máxima:", max(abs(comparacao_saldos$diff_siafi_tg)), "\n")
-cat("  Média:", mean(abs(comparacao_saldos$diff_siafi_tg)), "\n")
-
-
-datatable(comparacao_saldos) %>% 
-  formatRound(columns = c("saldo_msc", "saldo_siafi", "saldo_tg_msc", 
-                         "diff_msc_siafi", "diff_msc_tg", "diff_siafi_tg"), 
-             digits = 2, mark = ".", dec.mark = ",")
-
-
+```{}
 ```
 
 # Conclusões e Próximos Passos
