@@ -35,8 +35,8 @@ Este sistema automatiza a validação desses dados, verificando se todos os cód
 A **Matriz de Saldos Contábeis (MSC)** possui uma estrutura hierárquica com **6 posições de identificação**:
 
 | Posição | Tipos Aceitos | Descrição | Exemplo |
-|-----------------|--------------------|-----------------|-----------------|
-| **1** | PO | Programa Orçamentário | 10101 |
+|------------------|------------------|------------------|------------------|
+| **1** | PO | Poder Órgão | 10101 |
 | **2** | FP, FR | Função Programática / Fonte de Recursos | 1000 |
 | **3** | FR, ND, NR | Fonte / Natureza Despesa / Natureza Receita | 33903016 |
 | **4** | FS | Função Subfunção | 07122 |
@@ -131,7 +131,12 @@ TG_MSC <- read_delim(arquivo_msc,
 
 # 1. Programas Orçamentários (PO)
 portaria_PO <- read_excel("portaria.xlsx", sheet = "PO", skip = 4) %>% 
-  clean_names()
+  clean_names() %>% 
+ # Renomeia a primeira coluna para um nome mais claro
+  rename(po_siconfi = 1) %>%
+    # Filtra apenas linhas que contêm números (códigos válidos)
+  filter(str_detect(po_siconfi, ".*[0-9].*")) %>% 
+  mutate(po_siconfi = as.character(po_siconfi))
 
 # 2. Complementos (CO)  
 portaria_CO <- read_excel("portaria.xlsx", sheet = "CO", skip = 6) %>% 
@@ -245,6 +250,10 @@ preparar_codigos_validos <- function() {
   
   cat("Filtrando códigos excluídos (situacao_siconfi = 'E')...\n")
   
+  # PO: Complementos - manter todos 
+  po_validos <- portaria_PO$po_siconfi %>% unique()
+  
+  
   # NR: Natureza de Receita - apenas códigos ativos (situacao_siconfi != "E")
   nr_validos <- relnr %>%
     filter(is.na(situacao_siconfi) | situacao_siconfi != "E") %>%
@@ -275,6 +284,7 @@ preparar_codigos_validos <- function() {
   cat("\n")
   
   return(list(
+    po_validos = po_validos,
     nr_validos = nr_validos,
     nd_validos = nd_validos,
     fr_validos = fr_validos,
@@ -288,8 +298,12 @@ codigos_validos <- preparar_codigos_validos()
 
 # FUNÇÃO 1: Agrupa códigos por tipo
 # Esta função encontra todos os códigos de um determinado tipo em todas as posições
+
+
+# FUNÇÃO 1 CORRIGIDA: Agrupa códigos por tipo
 agrupar_tipos <- function(tipo) {
-  # Busca o tipo em cada posição (2 a 6) e coleta os códigos únicos
+  # Busca o tipo em cada posição (1 a 6) e coleta os códigos únicos
+  grupo_1 <- tabelao %>% filter(tipo1.msc == tipo, !is.na(ic1.msc)) %>% pull(ic1.msc) %>% unique()  # 👈 ADICIONADO!
   grupo_2 <- tabelao %>% filter(tipo2.msc == tipo, !is.na(ic2.msc)) %>% pull(ic2.msc) %>% unique()
   grupo_3 <- tabelao %>% filter(tipo3.msc == tipo, !is.na(ic3.msc)) %>% pull(ic3.msc) %>% unique()
   grupo_4 <- tabelao %>% filter(tipo4.msc == tipo, !is.na(ic4.msc)) %>% pull(ic4.msc) %>% unique()
@@ -297,8 +311,8 @@ agrupar_tipos <- function(tipo) {
   grupo_6 <- tabelao %>% filter(tipo6.msc == tipo, !is.na(ic6.msc)) %>% pull(ic6.msc) %>% unique()
   
   # Se não encontrou nada, retorna estrutura vazia
-  if(length(grupo_2) == 0 && length(grupo_3) == 0 && length(grupo_4) == 0 && 
-     length(grupo_5) == 0 && length(grupo_6) == 0) {
+  if(length(grupo_1) == 0 && length(grupo_2) == 0 && length(grupo_3) == 0 && 
+     length(grupo_4) == 0 && length(grupo_5) == 0 && length(grupo_6) == 0) {
     return(data.frame(
       codigo = character(0),
       origem = character(0),
@@ -306,10 +320,11 @@ agrupar_tipos <- function(tipo) {
     ))
   }
   
-  # Combina todos os grupos em uma tabela
+  # Combina todos os grupos em uma tabela (INCLUINDO grupo_1)
   data.frame(
-    codigo = c(grupo_2, grupo_3, grupo_4, grupo_5, grupo_6),
-    origem = c(rep("ic2", length(grupo_2)),
+    codigo = c(grupo_1, grupo_2, grupo_3, grupo_4, grupo_5, grupo_6),  # 👈 INCLUÍDO grupo_1!
+    origem = c(rep("ic1", length(grupo_1)),  # 👈 ADICIONADO!
+               rep("ic2", length(grupo_2)),
                rep("ic3", length(grupo_3)), 
                rep("ic4", length(grupo_4)),
                rep("ic5", length(grupo_5)),
@@ -317,6 +332,10 @@ agrupar_tipos <- function(tipo) {
     tipo_filtrado = tipo
   )
 }
+
+# RESULTADO ESPERADO APÓS A CORREÇÃO:
+# PO_msc agora deve encontrar todos os 73 códigos únicos de PO
+# A validação deve mostrar: PO = 73 códigos, 100% válidos ✅
 
 # FUNÇÃO 2: Detecta automaticamente quais tipos existem em cada posição
 detectar_tipos_por_posicao <- function(dados) {
@@ -359,13 +378,13 @@ executar_validacao_automatica <- function(dados) {
   # Aplica validações baseado nos tipos encontrados - USANDO CÓDIGOS VÁLIDOS
   dados_validados <- dados %>%
     mutate(
-      # POSIÇÃO 1: Somente PO (Programa Orçamentário)
+      # POSIÇÃO 1: Somente PO (Poder Órgão)
       posicao_1 = case_when(
-        tipo1.msc == "PO" ~ ifelse(ic1.msc %in% portaria_PO$codigo, "ok", "verificar"),
+        tipo1.msc == "PO" ~ ifelse(ic1.msc %in% codigos_validos$po_validos, "ok", "verificar"),
         TRUE ~ "demais"
       ),
       
-      # POSIÇÃO 2: FP (sempre OK) ou FR (validar com códigos filtrados)
+      # POSIÇÃO 2: FP (1 ou 2) ou FR (validar com códigos filtrados)
       posicao_2 = case_when(
         tipo2.msc == "FP" ~ ifelse(ic2.msc %in% valores_fp_validos, "ok", "verificar"),
         tipo2.msc == "FR" ~ ifelse(ic2.msc %in% codigos_validos$fr_validos, "ok", "verificar"),
@@ -413,6 +432,7 @@ verificar_todos_codigos_correto <- function() {
   # Cria tabela com tipos, dados encontrados e referências FILTRADAS para comparar
   tribble(
     ~tipo, ~dados, ~referencia,
+    "PO", PO_msc, codigos_validos$po_validos,
     "FR", FT_msc, codigos_validos$fr_validos,
     "NR", NR_msc, codigos_validos$nr_validos,
     "ND", ND_msc, codigos_validos$nd_validos,
@@ -444,7 +464,7 @@ verificar_todos_codigos_correto <- function() {
         encontrados = encontrados_count,
         perdidos = total_count - encontrados_count,
         percentual = round((encontrados_count / total_count) * 100, 1),
-        status = if_else((encontrados_count / total_count) >= 0.99, "✅", "⚠️")
+        status = if_else((encontrados_count / total_count) >= 1, "✅", "⚠️")
       )
     })
   ) %>%
@@ -477,6 +497,7 @@ tipos_encontrados <- resultado$tipos_detectados
 # Cria grupos de códigos para análise posterior
 # Cada grupo contém todos os códigos de um tipo específico encontrados nos dados
 
+PO_msc <- agrupar_tipos("PO")   # Poder Órgão
 FT_msc <- agrupar_tipos("FR")   # Fonte de Recursos
 ND_msc <- agrupar_tipos("ND")   # Natureza de Despesa  
 NR_msc <- agrupar_tipos("NR")   # Natureza de Receita
@@ -532,7 +553,7 @@ resumo_problemas <- tabelao_validado %>%
   pivot_longer(everything(), names_to = "Posição", values_to = "Problemas") %>%
   mutate(
     Posição = str_replace(Posição, "posicao_", "Posição "),
-    `% Total` = round(Problemas / nrow(tabelao_validado) * 100, 3)
+    `% Total` = round(Problemas / nrow(tabelao_validado) * 100, 4)
   )
 
 datatable(resumo_problemas,
@@ -557,7 +578,7 @@ registros_com_problema <- tabelao_validado %>%
   filter(if_any(starts_with("posicao_"), ~ .x == "verificar")) %>%
   nrow()
 
-taxa_sucesso <- round((total_registros - registros_com_problema) / total_registros * 100, 2)
+taxa_sucesso <- round((total_registros - registros_com_problema) / total_registros * 100, 4)
 
 # Cria resumo visual
 status_sistema <- data.frame(
@@ -568,7 +589,7 @@ status_sistema <- data.frame(
     format(registros_com_problema, big.mark = "."),
     paste0(taxa_sucesso, "%")
   ),
-  Status = c("📊", "✅", "⚠️", if(taxa_sucesso >= 95) "🏆" else "📈")
+  Status = c("📊", "✅", "⚠️", if(taxa_sucesso >= 100) "🏆" else "📈")
 )
 
 datatable(status_sistema,
@@ -599,7 +620,7 @@ analise_estrutura <- tibble(
     paste(tipos_encontrados$pos_6, collapse = ", ")
   ),
   `Descrição` = c(
-    "Programa Orçamentário",
+    "Poder Órgão",
     "Função Programática / Fonte de Recursos", 
     "Fonte de Recursos / Natureza Despesa / Natureza Receita",
     "Função Subfunção",
@@ -802,7 +823,7 @@ cat("Status: CONCLUÍDO COM", ifelse(sum(!comparacao_saldos$conciliacao_ok) == 0
 
 ```
 
-```{}
+```         
 ```
 
 # Conclusões e Próximos Passos
