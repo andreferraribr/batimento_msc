@@ -90,7 +90,7 @@ library(glue)       # Formatação de texto
 ```{r parametros}
 # Define qual mês será analisado
 # Formato: YYYYMM (Ano + Mês com 2 dígitos)
-mes <- "202507"  # Julho de 2025
+mes <- "202508"  # agosto de 2025
 
 # Monta o nome do arquivo baseado no mês
 arquivo_msc <- paste0("TG-MSC", mes, ".csv")
@@ -693,7 +693,7 @@ cat("=== SALDOS CONSOLIDADOS MSC POR CLASSE ===\n")
 datatable(saldos_msc, 
           rownames = FALSE,
           options = list(scrollX = TRUE, pageLength = 8),
-          colnames = c("Classe", "Saldo Inicial", "Movimentação", "Saldo Final", "Resultado")) %>%
+          colnames = c("Classe", "Saldo Inicial", "Saldo Final", "Movimentação", "Resultado")) %>%
   formatRound(c("beginning_balance", "period_change", "ending_balance", "resultado"), 
              digits = 2, mark = ".", dec.mark = ",")
 
@@ -713,7 +713,8 @@ balancete_siafi <- read_excel("balancete_siafi.xlsx", range = "A1:D9") %>%
   mutate(classe = str_sub(conta, 1L, 1L))
 
 # Carregar balancete TG MSC para validação cruzada
-balancete_tg_msc <- read_excel("balancete_tg_msc.xlsx") %>% 
+balancete_tg_msc <- read_excel("balancete_tg_msc.xlsx", 
+    skip = 5) %>% 
   clean_names() %>% 
   rename(classe = 1) %>% 
   filter(mes_lancamento == mes) %>% 
@@ -852,5 +853,17 @@ Com base na análise realizada:
 *Relatório gerado automaticamente em `r format(Sys.time(), '%d/%m/%Y às %H:%M')`*
 
 ```{r}
-View(balancete_siafi)
+# View(balancete_siafi)
+```
+
+```{r}
+ # datatable(tabelao_validado %>% filter(conta %in% c("522130100", "622110000","822210100", "822110100"), tipo2.msc == "FR" ) %>% group_by(conta, ic2.msc, tipo2.msc ) %>% count())
+```
+
+```{r verificar_campos_sem_registor}
+# datatable(tabelao_validado %>% filter(!is.na(ic1.layout), is.na(ic1.msc))  %>% group_by(conta ) %>% count())%>%  formatRound("conta", digits = 0, dec.mark = "", mark = "")
+```
+
+```{r}
+ # datatable(tabelao_validado %>% filter(conta %in% c("522130100", "622110000","822210100", "822110100"), tipo3.msc == "FR" ) %>% group_by(conta,  ic3.msc, tipo3.msc) %>% count()) 
 ```
